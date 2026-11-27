@@ -47,27 +47,38 @@ jobs:
         shell: bash
         run: |
           git clone --depth 1 --branch "$VGPU_REF" "$VGPU_REPO" upstream/reims-vgpu
-          git clone --filter=blob:none "$QEMU_REPO" upstream/qemu
-          git -C upstream/qemu checkout "$QEMU_REF"
+          mkdir -p upstream/reims-vgpu/vendor
+          git clone --filter=blob:none "$QEMU_REPO" upstream/reims-vgpu/vendor/qemu
+          git -C upstream/reims-vgpu/vendor/qemu checkout "$QEMU_REF"
 
-      - name: Install upstream Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain-file: upstream/reims-vgpu/rust-toolchain.toml
-
-      - name: Install MSYS2 tools from upstream script
+      - name: Install MSYS2 build dependencies
+        # Package list mirrors msys2_pkgs in upstream scripts/install-ctl.sh.
+        # We do not run that script in CI: it is interactive, installs VMs'
+        # tooling and builds QEMU itself, while this job drives `make qemu`.
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
           update: true
-          install: mingw-w64-clang-x86_64-toolchain make zstd
+          install: >-
+            git curl diffutils make
+            mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-pkgconf mingw-w64-clang-x86_64-meson
+            mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-python mingw-w64-clang-x86_64-glib2
+            mingw-w64-clang-x86_64-pixman mingw-w64-clang-x86_64-libslirp
+            mingw-w64-clang-x86_64-gtk3 mingw-w64-clang-x86_64-libusb
+            mingw-w64-clang-x86_64-zstd mingw-w64-clang-x86_64-libva
+            mingw-w64-clang-x86_64-mesa
 
-      - name: Install upstream build dependencies
+      - name: Install the pinned Rust toolchain (gnullvm host)
         shell: msys2 {0}
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-03-x86_64-pc-windows-gnullvm
         run: |
-          cd upstream/reims-vgpu
-          bash scripts/install-ctl.sh
-          pacman --noconfirm -S --needed zstd
+          set -euo pipefail
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal \
+            -c rustfmt -c clippy --no-self-update
+          rustup default "$RUSTUP_TOOLCHAIN"
 
       - name: Check patch queue
         if: env.CHANNEL == 'patched'
@@ -81,6 +92,8 @@ jobs:
 
       - name: Build QEMU and the engine tools
         shell: msys2 {0}
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-03-x86_64-pc-windows-gnullvm
         run: |
           cd upstream/reims-vgpu
           rm -rf build/qemu
@@ -89,6 +102,8 @@ jobs:
       - name: Collect binaries and assert device support
         id: collect
         shell: msys2 {0}
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-03-x86_64-pc-windows-gnullvm
         run: |
           set -euo pipefail
           cd upstream/reims-vgpu
@@ -182,28 +197,42 @@ jobs:
           df -h .
 
       - name: Install build dependencies
+        # Mirrors apt_pkgs in upstream scripts/install-ctl.sh; SDL3's cmake
+        # build needs the X11/Wayland/EGL development headers.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config clang lld make \
-            libusb-1.0-0-dev zstd python3
+            build-essential git curl ca-certificates pkg-config python3 python3-venv \
+            ninja-build flex bison bzip2 cmake binutils clang lld make \
+            libglib2.0-dev libpixman-1-dev libslirp-dev zlib1g-dev libfdt-dev \
+            libpipewire-0.3-dev libpulse-dev libasound2-dev libusb-1.0-0-dev \
+            libspice-server-dev libgnutls28-dev libvulkan1 vulkan-tools zstd \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev libwayland-bin libdecor-0-dev \
+            libegl-dev libgl-dev libdrm-dev libgbm-dev libdbus-1-dev \
+            libudev-dev libgtk-3-dev
 
       - name: Clone pinned upstream revisions
         run: |
           git clone --depth 1 --branch "$VGPU_REF" "$VGPU_REPO" upstream/reims-vgpu
-          git clone --filter=blob:none "$QEMU_REPO" upstream/qemu
-          git -C upstream/qemu checkout "$QEMU_REF"
+          mkdir -p upstream/reims-vgpu/vendor
+          git clone --filter=blob:none "$QEMU_REPO" upstream/reims-vgpu/vendor/qemu
+          git -C upstream/reims-vgpu/vendor/qemu checkout "$QEMU_REF"
 
-      - name: Install upstream Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain-file: upstream/reims-vgpu/rust-toolchain.toml
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install nightly-2026-11-03 --profile minimal \
+            -c rustfmt -c clippy --no-self-update
+          rustup default nightly-2026-11-03
 
       - name: Check patch queue
         if: env.CHANNEL == 'master'
         run: echo "Clean upstream channel; no patches to apply."
 
       - name: Build QEMU and the engine tools
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-03
         run: |
           cd upstream/reims-vgpu
           rm -rf build/qemu
@@ -211,6 +240,8 @@ jobs:
 
       - name: Collect binaries and assert device support
         id: collect
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-03
         run: |
           set -euo pipefail
           cd upstream/reims-vgpu
