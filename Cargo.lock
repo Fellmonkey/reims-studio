@@ -2652,7 +2652,7 @@ dependencies = [
 name = "reims-engine-mgr"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "dmg-core",
  "dmg-forensic",
  "forensicnomicon",
