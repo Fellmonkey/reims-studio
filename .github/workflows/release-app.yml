@@ -13,13 +13,11 @@ on:
         type: string
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]*"
 
 permissions:
   contents: write
   id-token: write
-
-environment: release
 
 env:
   VERSION: ${{ inputs.version || github.ref_name }}
@@ -72,6 +70,7 @@ jobs:
   release:
     name: Publish binaries
     needs: verify
+    environment: release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
