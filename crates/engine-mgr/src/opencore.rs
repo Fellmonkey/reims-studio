@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use plist::Value;
-use reims_core::contracts::SmbiosConfig;
+use reims_core::contracts::{ContractError, SmbiosConfig};
 
 use crate::manager::EngineError;
 
@@ -61,16 +61,16 @@ impl OcPatch {
 }
 
 fn child<'a>(value: &'a mut Value, key: &str) -> Result<&'a mut Value, EngineError> {
-    let dictionary = value.as_dictionary_mut().ok_or_else(|| {
-        EngineError::InvalidArchive(format!("expected a dictionary at {key}"))
-    })?;
+    let dictionary = value
+        .as_dictionary_mut()
+        .ok_or_else(|| EngineError::InvalidArchive(format!("expected a dictionary at {key}")))?;
     dictionary
         .get_mut(key)
         .ok_or_else(|| EngineError::InvalidArchive(format!("missing OpenCore key {key}")))
 }
 
 fn set_integer(value: &mut Value, key: &str, number: u32) -> Result<(), EngineError> {
-    *child(value, key)? = Value::Integer(i64::from(number));
+    *child(value, key)? = Value::Integer(number.into());
     Ok(())
 }
 
@@ -97,11 +97,13 @@ pub fn patch_config(config: &mut Value, patch: &OcPatch) -> Result<(), EngineErr
         let nvram = child(config, "NVRAM")?;
         let add = child(nvram, "Add")?;
         let boot_args = child(add, BOOT_ARGS_KEY)?;
-        let boot_args = boot_args.as_string_mut().ok_or_else(|| {
-            EngineError::InvalidArchive(String::from("boot-args is not a string"))
-        })?;
-        if !boot_args.split_whitespace().any(|argument| argument == "-v") {
-            boot_args.push_str(" -v");
+        let Value::String(text) = boot_args else {
+            return Err(EngineError::InvalidArchive(String::from(
+                "boot-args is not a string",
+            )));
+        };
+        if !text.split_whitespace().any(|argument| argument == "-v") {
+            text.push_str(" -v");
         }
     }
 
@@ -187,21 +189,34 @@ pub fn copy_kexts(
         path: set_toml.display().to_string(),
         source,
     })?;
-    let parsed: toml::Value = toml::from_str(&raw)?;
+    let parsed: toml::Value = toml::from_str(&raw).map_err(|source| {
+        EngineError::Contract(ContractError::Toml {
+            path: set_toml.display().to_string(),
+            source,
+        })
+    })?;
     let destination = esp_root.join("EFI/OC/Kexts");
     let mut copied = Vec::new();
     for name in kext_names(&parsed) {
         let relative = Path::new(&name);
         if relative.components().any(|part| {
-            matches!(part, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+            matches!(
+                part,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
         }) {
             return Err(EngineError::UnsafePath(name));
         }
-        let Some(basename) = relative.file_name() else {
+        let Some(kext_name) = relative.components().next().and_then(|part| match part {
+            Component::Normal(value) => Some(value),
+            _ => None,
+        }) else {
             return Err(EngineError::UnsafePath(name));
         };
-        let source = guest_root.join(relative);
-        copy_tree(&source, &destination.join(basename))?;
+        // set.toml may name a single file inside Contents; always copy the
+        // whole kext tree so Metal bundles and resources are included.
+        let source = guest_root.join(kext_name);
+        copy_tree(&source, &destination.join(kext_name))?;
         copied.push(name);
     }
     Ok(copied)
@@ -248,56 +263,61 @@ pub fn patched_paths() -> BTreeMap<&'static str, &'static str> {
 mod tests {
     use super::*;
 
+    fn dict(entries: &[(&str, Value)]) -> Value {
+        let mut dictionary = plist::Dictionary::new();
+        for (key, value) in entries {
+            dictionary.insert((*key).to_owned(), value.clone());
+        }
+        Value::Dictionary(dictionary)
+    }
+
+    fn integer(value: u32) -> Value {
+        Value::Integer(value.into())
+    }
+
     fn config() -> Value {
-        let mut root = BTreeMap::new();
-        root.insert(
-            String::from("Misc"),
-            Value::Dictionary(BTreeMap::from([
-                (
-                    String::from("Security"),
-                    Value::Dictionary(BTreeMap::from([(
-                        String::from("ScanPolicy"),
-                        Value::Integer(0),
-                    )])),
-                ),
-                (
-                    String::from("Boot"),
-                    Value::Dictionary(BTreeMap::from([
-                        (String::from("Timeout"), Value::Integer(5)),
-                        (String::from("ShowPicker"), Value::Boolean(false)),
-                    ])),
-                ),
-            ])),
-        );
-        root.insert(
-            String::from("NVRAM"),
-            Value::Dictionary(BTreeMap::from([(
-                String::from("Add"),
-                Value::Dictionary(BTreeMap::from([(
-                    String::from(BOOT_ARGS_KEY),
-                    Value::String(String::from("npci=0x3000")),
-                )])),
-            )])),
-        );
-        root.insert(
-            String::from("PlatformInfo"),
-            Value::Dictionary(BTreeMap::from([(
-                String::from("Generic"),
-                Value::Dictionary(BTreeMap::new()),
-            )])),
-        );
-        Value::Dictionary(root)
+        dict(&[
+            (
+                "Misc",
+                dict(&[
+                    ("Security", dict(&[("ScanPolicy", integer(0))])),
+                    (
+                        "Boot",
+                        dict(&[
+                            ("Timeout", integer(5)),
+                            ("ShowPicker", Value::Boolean(false)),
+                        ]),
+                    ),
+                ]),
+            ),
+            (
+                "NVRAM",
+                dict(&[(
+                    "Add",
+                    dict(&[(BOOT_ARGS_KEY, Value::String(String::from("npci=0x3000")))]),
+                )]),
+            ),
+            ("PlatformInfo", dict(&[("Generic", dict(&[]))])),
+        ])
     }
 
     #[test]
     fn install_patch_sets_the_install_scan_policy() {
         let mut config = config();
         patch_config(&mut config, &OcPatch::install()).expect("patch");
-        let misc = config.as_dictionary().expect("misc").get("Misc").expect("misc");
-        let security = misc.as_dictionary().expect("dict").get("Security").expect("security");
+        let misc = config
+            .as_dictionary()
+            .expect("misc")
+            .get("Misc")
+            .expect("misc");
+        let security = misc
+            .as_dictionary()
+            .expect("dict")
+            .get("Security")
+            .expect("security");
         assert_eq!(
             security.as_dictionary().expect("dict").get("ScanPolicy"),
-            Some(&Value::Integer(983_811))
+            Some(&integer(983_811))
         );
     }
 
@@ -305,10 +325,18 @@ mod tests {
     fn post_install_patch_changes_timeout_and_scan_policy() {
         let mut config = config();
         patch_config(&mut config, &OcPatch::post_install()).expect("patch");
-        let misc = config.as_dictionary().expect("root").get("Misc").expect("misc");
-        let boot = misc.as_dictionary().expect("dict").get("Boot").expect("boot");
+        let misc = config
+            .as_dictionary()
+            .expect("root")
+            .get("Misc")
+            .expect("misc");
+        let boot = misc
+            .as_dictionary()
+            .expect("dict")
+            .get("Boot")
+            .expect("boot");
         let boot = boot.as_dictionary().expect("dict");
-        assert_eq!(boot.get("Timeout"), Some(&Value::Integer(2)));
+        assert_eq!(boot.get("Timeout"), Some(&integer(2)));
         assert_eq!(boot.get("ShowPicker"), Some(&Value::Boolean(true)));
     }
 
@@ -318,9 +346,21 @@ mod tests {
         let patch = OcPatch::diagnostics();
         patch_config(&mut config, &patch).expect("first patch");
         patch_config(&mut config, &patch).expect("second patch");
-        let nvram = config.as_dictionary().expect("root").get("NVRAM").expect("nvram");
-        let add = nvram.as_dictionary().expect("dict").get("Add").expect("add");
-        let args = add.as_dictionary().expect("dict").get(BOOT_ARGS_KEY).expect("args");
+        let nvram = config
+            .as_dictionary()
+            .expect("root")
+            .get("NVRAM")
+            .expect("nvram");
+        let add = nvram
+            .as_dictionary()
+            .expect("dict")
+            .get("Add")
+            .expect("add");
+        let args = add
+            .as_dictionary()
+            .expect("dict")
+            .get(BOOT_ARGS_KEY)
+            .expect("args");
         assert_eq!(args.as_string(), Some("npci=0x3000 -v"));
     }
 
