@@ -13,12 +13,14 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 toml = "1.2.3"
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["net", "io-util", "macros", "rt", "time"] }
+tokio = { version = "1.54.1", features = ["net", "io-util", "macros", "rt", "time", "process"] }
 fs2 = "0.4.3"
 sysinfo = "0.40.4"
 regex = "1.13.2"
 proptest = "1.12.0"
 tempfile = "3.27.0"
+libc = "0.2.191"
+plist = "1.10.5"
 
 [workspace.lints.rust]
 unsafe_code = "warn"

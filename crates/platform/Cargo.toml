@@ -11,6 +11,13 @@ repository.workspace = true
 reims-core = { version = "0.1.0", path = "../core" }
 thiserror.workspace = true
 sysinfo.workspace = true
+tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

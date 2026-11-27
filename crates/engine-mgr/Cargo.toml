@@ -12,6 +12,10 @@ reims-core = { version = "0.1.0", path = "../core" }
 sha2 = "0.11.2"
 tar = "0.4.46"
 zstd = "0.14.5"
+plist.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
