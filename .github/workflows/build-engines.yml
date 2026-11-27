@@ -30,7 +30,9 @@ env:
   VGPU_REPO: https://github.com/steelbrain/reims-vgpu.git
   QEMU_REPO: https://github.com/steelbrain/qemu-reims-vgpu.git
   VGPU_REF: ${{ vars.VGPU_REF || 'master' }}
-  QEMU_REF: ${{ vars.QEMU_REF || 'reims-graphics' }}
+  # Upstream has no `reims-graphics` branch; the QEMU changes live on
+  # `steelbrain/reims-vgpu`. Pin that branch's commit for reproducibility.
+  QEMU_REF: ${{ vars.QEMU_REF || '1f6f4ea455370bd8f26cebf3de8304bb1fefb945' }}
   CHANNEL: ${{ inputs.channel || 'master' }}
   PUBLISH: ${{ inputs.publish || github.event_name == 'push' }}
 
