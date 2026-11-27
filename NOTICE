@@ -1,0 +1,12 @@
+Reims Studio
+Copyright 2026 Fellmonkey
+
+This project is licensed under the Apache License, Version 2.0 (LICENSE).
+
+Third-party dependencies are fetched through Cargo. Each dependency keeps its
+own license and attribution in its source distribution. Accepted dependency
+licenses are listed in deny.toml. Exact versions are recorded in Cargo.lock.
+
+Engine bundles built from steelbrain/reims-vgpu and steelbrain/qemu-reims-vgpu
+are published as separate artifacts under their upstream licenses. This
+project does not claim authorship of those engines or of their guest assets.

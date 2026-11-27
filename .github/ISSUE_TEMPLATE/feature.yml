@@ -1,0 +1,28 @@
+name: Feature request
+description: Something Reims Studio should do, or a change you would like to make.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: The task, not the solution. Where does Reims Studio get in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like Reims Studio to do
+      description: If another tool already does this, say how.
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Would you like to build it?
+      description: If so, wait until we have agreed on the approach here before opening a pull request.
+      options:
+        - "No, just suggesting it"
+        - "Yes, once we have agreed on the approach"
+    validations:
+      required: true

@@ -35,3 +35,13 @@ Idle figures are measured on a clean Windows 11 host with the VM stopped.
 - [Delivered result](docs/RESULT.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 
+## Contributing
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contributor License Agreement](CLA.md)
+
+## License
+
+Licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE).
+

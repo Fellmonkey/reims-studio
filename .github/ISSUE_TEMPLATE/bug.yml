@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in Reims Studio does not work as it should.
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Reims Studio version and system
+      description: Launcher version, host OS, engine channel and Git SHA from settings.toml or manifest.json.
+      placeholder: "v1.0 on Windows 11, development, sha 1a2b3c4"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: Exact commands or UI steps and a minimal vm.toml, so we can reproduce it.
+      render: toml
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What happened
+      description: Full output or error pasted as text. Add a screenshot for a UI problem.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: The behavior you expected, with concrete values.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: How often it happens, a workaround you found, GPU and driver version.
