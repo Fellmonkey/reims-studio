@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-reims-core = { path = "../core" }
+reims-core = { version = "0.1.0", path = "../core" }
 sha2 = "0.11.2"
 tar = "0.4.46"
 zstd = "0.14.5"
