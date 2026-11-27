@@ -1,0 +1,21 @@
+[alias]
+b = "build"
+c = "check"
+t = "test"
+r = "run"
+lint = "clippy --workspace --all-targets --all-features -- -D warnings"
+fmtall = "fmt --all"
+gates = "nextest run --workspace --profile ci --locked"
+
+[build]
+target-dir = "target"
+
+[net]
+git-fetch-with-cli = true
+retry = 3
+
+[registries.crates-io]
+protocol = "sparse"
+
+[env]
+RUST_BACKTRACE = { value = "1", force = true }

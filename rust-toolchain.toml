@@ -1,0 +1,5 @@
+[toolchain]
+# Лаунчер и утилиты: stable Rust. Движок собирается своим toolchain из апстрима.
+channel = "stable"
+profile = "minimal"
+components = ["rustfmt", "clippy", "rust-src"]

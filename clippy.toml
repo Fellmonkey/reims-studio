@@ -1,0 +1,5 @@
+# Clippy не должен предлагать API новее MSRV.
+msrv = "1.85"
+allow-unwrap-in-tests = true
+too-many-arguments-threshold = 7
+cognitive-complexity-threshold = 25
