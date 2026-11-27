@@ -1,0 +1,2 @@
+local/001	rotation created an extra .3 file outside the retention window
+local/002	Windows vm.lock contention was reported as a raw I/O error
