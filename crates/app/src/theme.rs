@@ -1,31 +1,108 @@
-//! Shared visual tokens for the launcher.
+//! Design tokens and reusable widgets for the launcher.
 //!
-//! The UI runs on the software `tiny-skia` backend, so the design system uses
-//! flat colors, consistent spacing and simple boxes instead of effects that
-//! need a GPU renderer.
+//! The palette is dark-only and meets WCAG AA for text on cards. The app runs
+//! on the `tiny-skia` software renderer, so effects are limited to flat fills,
+//! borders and spacing that render identically on every host.
 
-use iced::widget::{button, column, container, row, text};
-use iced::{Background, Border, Color, Element, Length, Theme};
+use iced::widget::{button, column, container, progress_bar, text};
+use iced::{Background, Border, Color, Element, Font, Length, Theme, font};
 
-/// Accent color for primary actions and the active step.
-pub const ACCENT: Color = Color::from_rgb(0.16, 0.42, 0.68);
-/// Muted text for secondary information.
-pub const MUTED: Color = Color::from_rgb(0.55, 0.59, 0.65);
-/// Success color for decoded checks.
-pub const SUCCESS: Color = Color::from_rgb(0.18, 0.62, 0.38);
-/// Warning color for degraded states.
-pub const WARNING: Color = Color::from_rgb(0.85, 0.58, 0.16);
-/// Error color for blockers.
-pub const DANGER: Color = Color::from_rgb(0.82, 0.30, 0.30);
-/// Background of a raised card.
-pub const CARD: Color = Color::from_rgb(0.10, 0.12, 0.15);
-/// Foreground used on top of the accent color.
-pub const ON_ACCENT: Color = Color::from_rgb(0.96, 0.97, 0.98);
+/// Page background.
+pub const PAGE: Color = Color::from_rgb(0.051, 0.067, 0.090);
+/// Raised card background.
+pub const CARD: Color = Color::from_rgb(0.086, 0.106, 0.133);
+/// Hover and selected surface.
+pub const CARD_ALT: Color = Color::from_rgb(0.110, 0.129, 0.157);
+/// Subtle border around surfaces.
+pub const BORDER: Color = Color::from_rgb(0.188, 0.212, 0.239);
+/// Primary text; 14.6:1 on `CARD`.
+pub const TEXT: Color = Color::from_rgb(0.902, 0.929, 0.953);
+/// Secondary text; 8.2:1 on `CARD`.
+pub const MUTED: Color = Color::from_rgb(0.663, 0.706, 0.761);
+/// Interactive accent; 6.9:1 on `CARD`.
+pub const ACCENT: Color = Color::from_rgb(0.345, 0.651, 1.000);
+/// Accent on hover.
+pub const ACCENT_HOVER: Color = Color::from_rgb(0.475, 0.722, 1.000);
+/// Text on the accent color; 7.5:1 on `ACCENT`.
+pub const ON_ACCENT: Color = Color::from_rgb(0.031, 0.067, 0.122);
+/// Success; 6.8:1 on `CARD`.
+pub const SUCCESS: Color = Color::from_rgb(0.247, 0.725, 0.314);
+/// Warning; 6.9:1 on `CARD`.
+pub const WARNING: Color = Color::from_rgb(0.824, 0.600, 0.133);
+/// Error; 5.2:1 on `CARD`.
+pub const DANGER: Color = Color::from_rgb(0.973, 0.319, 0.286);
+/// Disabled text.
+pub const DISABLED: Color = Color::from_rgb(0.431, 0.463, 0.506);
 
-/// Vertical rhythm between sections.
+/// Spacing unit used everywhere in the app.
 pub const GAP: f32 = 12.0;
-/// Padding inside a card.
+/// Card padding.
 pub const PAD: f32 = 16.0;
+
+/// Semantic tone of a notice or finding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// Neutral information.
+    Info,
+    /// Something succeeded.
+    Success,
+    /// Something needs attention but is not fatal.
+    Warning,
+    /// Something blocks progress.
+    Error,
+}
+
+impl Tone {
+    /// Returns the matching color.
+    pub fn color(self) -> Color {
+        match self {
+            Self::Info => ACCENT,
+            Self::Success => SUCCESS,
+            Self::Warning => WARNING,
+            Self::Error => DANGER,
+        }
+    }
+}
+
+/// A user-facing status line with an explicit tone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    /// Severity of the message.
+    pub tone: Tone,
+    /// Message text.
+    pub text: String,
+}
+
+impl Notice {
+    /// Creates an informational notice.
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            tone: Tone::Info,
+            text: text.into(),
+        }
+    }
+    /// Creates a success notice.
+    pub fn success(text: impl Into<String>) -> Self {
+        Self {
+            tone: Tone::Success,
+            text: text.into(),
+        }
+    }
+    /// Creates a warning notice.
+    pub fn warning(text: impl Into<String>) -> Self {
+        Self {
+            tone: Tone::Warning,
+            text: text.into(),
+        }
+    }
+    /// Creates an error notice.
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            tone: Tone::Error,
+            text: text.into(),
+        }
+    }
+}
 
 /// Returns a titled card with one body element.
 pub fn card<'a, Message: 'a>(
@@ -41,8 +118,9 @@ pub fn card<'a, Message: 'a>(
     .width(Length::Fill)
     .style(|_theme| container::Style {
         background: Some(Background::Color(CARD)),
+        text_color: Some(TEXT),
         border: Border {
-            color: Color { a: 0.35, ..ACCENT },
+            color: BORDER,
             width: 1.0,
             radius: 8.0.into(),
         },
@@ -53,43 +131,81 @@ pub fn card<'a, Message: 'a>(
 
 /// Returns a section heading.
 pub fn section_title<'a, Message: 'a>(title: &'static str) -> Element<'a, Message, Theme> {
-    text(title).size(18).color(ACCENT).into()
+    text(title)
+        .size(16.0)
+        .font(Font {
+            weight: font::Weight::Semibold,
+            ..Font::default()
+        })
+        .color(TEXT)
+        .into()
 }
 
 /// Returns muted secondary text.
 pub fn muted<'a, Message: 'a>(value: impl Into<String>) -> Element<'a, Message, Theme> {
-    text(value.into()).size(13).color(MUTED).into()
+    text(value.into()).size(13.0).color(MUTED).into()
 }
 
-/// Returns a short status badge.
-pub fn badge<'a, Message: 'a>(
-    value: impl Into<String>,
-    color: Color,
-) -> Element<'a, Message, Theme> {
-    text(value.into()).size(13).color(color).into()
+/// Returns primary text at body size.
+pub fn body<'a, Message: 'a>(value: impl Into<String>) -> Element<'a, Message, Theme> {
+    text(value.into()).size(14.0).color(TEXT).into()
 }
 
-/// Returns the status line colored by outcome.
-pub fn status<'a, Message: 'a>(value: &str) -> Element<'a, Message, Theme> {
-    let lower = value.to_ascii_lowercase();
-    let color = if lower.contains("unavailable") || lower.contains("not created") {
-        WARNING
-    } else if lower.contains("fail")
-        || lower.contains("error")
-        || lower.starts_with("choose")
-        || lower.starts_with("no ")
-    {
-        DANGER
-    } else if lower.contains("created")
-        || lower.contains("applied")
-        || lower.contains("refreshed")
-        || lower.contains("selected")
-    {
-        SUCCESS
-    } else {
-        MUTED
-    };
-    text(value.to_owned()).size(13).color(color).into()
+/// Returns a colored badge with a tinted background.
+pub fn badge<'a, Message: 'a>(value: impl Into<String>, tone: Tone) -> Element<'a, Message, Theme> {
+    let color = tone.color();
+    container(text(value.into()).size(12.0).color(color))
+        .padding([4.0, 8.0])
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(Color { a: 0.16, ..color })),
+            border: Border {
+                color,
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// Returns a status badge whose background tint fades with `tint` (0..=1).
+pub fn notice_alpha<'a, Message: 'a>(value: &Notice, tint: f32) -> Element<'a, Message, Theme> {
+    let color = value.tone.color();
+    let tint = tint.clamp(0.0, 1.0);
+    container(text(value.text.clone()).size(12.0).color(color))
+        .padding([4.0, 8.0])
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(Color {
+                a: 0.16 * tint,
+                ..color
+            })),
+            border: Border {
+                color,
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn button_style(active: bool, hovered: bool) -> button::Style {
+    button::Style {
+        background: Some(Background::Color(if active {
+            ACCENT
+        } else if hovered {
+            CARD_ALT
+        } else {
+            CARD
+        })),
+        text_color: if active { ON_ACCENT } else { TEXT },
+        border: Border {
+            color: if active { ACCENT } else { BORDER },
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..button::Style::default()
+    }
 }
 
 /// Returns a filled button for the primary action.
@@ -97,17 +213,57 @@ pub fn primary<'a, Message: Clone + 'a>(
     label: &'static str,
     message: Message,
 ) -> Element<'a, Message, Theme> {
-    button(text(label))
+    primary_enabled(label, Some(message))
+}
+
+/// Returns a primary button that is visibly disabled when there is no action.
+pub fn primary_enabled<'a, Message: Clone + 'a>(
+    label: &'static str,
+    message: Option<Message>,
+) -> Element<'a, Message, Theme> {
+    let control = button(text(label).size(14.0)).style(|_theme, status| {
+        let disabled = matches!(status, button::Status::Disabled);
+        button::Style {
+            background: Some(Background::Color(if disabled {
+                CARD_ALT
+            } else {
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => ACCENT_HOVER,
+                    _ => ACCENT,
+                }
+            })),
+            text_color: if disabled { DISABLED } else { ON_ACCENT },
+            border: Border {
+                color: if disabled { BORDER } else { ACCENT },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            ..button::Style::default()
+        }
+    });
+    match message {
+        Some(message) => control.on_press(message).into(),
+        None => control.into(),
+    }
+}
+
+/// Returns a bordered button for secondary actions.
+pub fn secondary<'a, Message: Clone + 'a>(
+    label: &'static str,
+    message: Message,
+) -> Element<'a, Message, Theme> {
+    button(text(label).size(14.0))
         .on_press(message)
         .style(|_theme, status| button::Style {
             background: Some(Background::Color(match status {
-                button::Status::Hovered | button::Status::Pressed => Color { a: 0.85, ..ACCENT },
-                _ => ACCENT,
+                button::Status::Hovered | button::Status::Pressed => CARD_ALT,
+                _ => CARD,
             })),
-            text_color: ON_ACCENT,
+            text_color: TEXT,
             border: Border {
+                color: BORDER,
+                width: 1.0,
                 radius: 6.0.into(),
-                ..Border::default()
             },
             ..button::Style::default()
         })
@@ -120,25 +276,13 @@ pub fn nav<'a, Message: Clone + 'a>(
     active: bool,
     message: Message,
 ) -> Element<'a, Message, Theme> {
-    button(text(label).size(14))
+    button(text(label).size(14.0))
         .on_press(message)
-        .style(move |_theme, status| button::Style {
-            background: Some(Background::Color(if active {
-                Color { a: 0.30, ..ACCENT }
-            } else {
-                match status {
-                    button::Status::Hovered | button::Status::Pressed => {
-                        Color { a: 0.12, ..ACCENT }
-                    }
-                    _ => Color { a: 0.0, ..ACCENT },
-                }
-            })),
-            text_color: if active { ON_ACCENT } else { MUTED },
-            border: Border {
-                radius: 6.0.into(),
-                ..Border::default()
-            },
-            ..button::Style::default()
+        .style(move |_theme, status| {
+            button_style(
+                active,
+                matches!(status, button::Status::Hovered | button::Status::Pressed),
+            )
         })
         .into()
 }
@@ -149,50 +293,49 @@ pub fn choice<'a, Message: Clone + 'a>(
     selected: bool,
     message: Message,
 ) -> Element<'a, Message, Theme> {
-    button(text(label).size(13))
+    button(text(label).size(13.0))
         .on_press(message)
         .width(Length::Fill)
-        .style(move |_theme, status| button::Style {
-            background: Some(Background::Color(if selected {
-                Color { a: 0.32, ..ACCENT }
-            } else {
-                match status {
-                    button::Status::Hovered | button::Status::Pressed => {
-                        Color { a: 0.14, ..ACCENT }
-                    }
-                    _ => Color { a: 0.06, ..ACCENT },
-                }
-            })),
-            text_color: if selected { ON_ACCENT } else { MUTED },
-            border: Border {
-                radius: 6.0.into(),
-                ..Border::default()
-            },
-            ..button::Style::default()
+        .style(move |_theme, status| {
+            button_style(
+                selected,
+                matches!(status, button::Status::Hovered | button::Status::Pressed),
+            )
         })
         .into()
 }
 
-/// Returns the horizontal progress indicator for the staged wizard.
-pub fn steps<'a, Message: 'a>(
-    labels: &'static [&'static str],
-    active: usize,
-) -> Element<'a, Message, Theme> {
-    let items = labels
-        .iter()
-        .enumerate()
-        .map(|(index, label)| {
-            text(format!("{}. {}", index + 1, label))
-                .size(13)
-                .color(if index == active {
-                    ON_ACCENT
-                } else if index < active {
-                    SUCCESS
-                } else {
-                    MUTED
-                })
-                .into()
+/// Returns a byte-progress bar for a download.
+pub fn bytes<'a, Message: 'a>(downloaded: u64, total: u64) -> Element<'a, Message, Theme> {
+    let fraction = if total == 0 {
+        0.0
+    } else {
+        (downloaded as f32 / total as f32).clamp(0.0, 1.0)
+    };
+    progress_bar(0.0..=1.0, fraction)
+        .girth(Length::Fixed(8.0))
+        .style(|_theme| progress_bar::Style {
+            background: Background::Color(CARD_ALT),
+            bar: Background::Color(ACCENT),
+            border: Border {
+                radius: 4.0.into(),
+                ..Border::default()
+            },
         })
-        .collect::<Vec<Element<'a, Message, Theme>>>();
-    row(items).spacing(GAP).into()
+        .into()
+}
+
+/// Returns the step progress bar for the setup flow.
+pub fn progress<'a, Message: 'a>(current: usize, total: usize) -> Element<'a, Message, Theme> {
+    progress_bar(0.0..=total as f32, current as f32)
+        .girth(Length::Fixed(6.0))
+        .style(|_theme| progress_bar::Style {
+            background: Background::Color(CARD_ALT),
+            bar: Background::Color(ACCENT),
+            border: Border {
+                radius: 3.0.into(),
+                ..Border::default()
+            },
+        })
+        .into()
 }
