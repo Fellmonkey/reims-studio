@@ -588,6 +588,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "reims-guest-bridge"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "reims-platform"
 version = "0.1.0"
 dependencies = [
