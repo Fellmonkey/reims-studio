@@ -1,0 +1,21 @@
+[package]
+name = "reims-engine-mgr"
+version = "0.1.0"
+description = "Engine release selection, SHA256 verification and safe archive unpacking for Reims Studio"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+reims-core = { path = "../core" }
+sha2 = "0.11.2"
+tar = "0.4.46"
+zstd = "0.14.5"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
