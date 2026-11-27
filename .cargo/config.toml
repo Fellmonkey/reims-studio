@@ -17,5 +17,8 @@ retry = 3
 [registries.crates-io]
 protocol = "sparse"
 
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [env]
 RUST_BACKTRACE = { value = "1", force = true }

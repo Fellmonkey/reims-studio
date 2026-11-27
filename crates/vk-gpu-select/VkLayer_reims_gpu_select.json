@@ -1,0 +1,11 @@
+{
+  "file_format_version": "1.0.0",
+  "layer": {
+    "name": "VK_LAYER_REIMS_gpu_select",
+    "type": "GLOBAL",
+    "library_path": "./VkLayer_reims_gpu_select.dll",
+    "api_version": "1.3.0",
+    "implementation_version": "1",
+    "description": "Selects a GPU by REIMS_GPU_SELECT=vid:did when the loader cannot distinguish identical devices"
+  }
+}

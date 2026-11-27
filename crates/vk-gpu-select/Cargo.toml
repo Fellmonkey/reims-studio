@@ -1,0 +1,16 @@
+[package]
+name = "vk-gpu-select"
+version = "0.1.0"
+description = "Fallback Vulkan layer that selects a GPU by VID:DID for Reims Studio"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[lints]
+workspace = true
