@@ -1,0 +1,136 @@
+name: Release app
+
+# Release path from the technical plan: SemVer tag -> gates -> package checks ->
+# binaries -> GitHub Release. Crate publishing is opt-in via PUBLISH_CRATES
+# because the workspace crate names are not reserved on crates.io yet.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, for example 1.0.0
+        required: true
+        type: string
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+  id-token: write
+
+environment: release
+
+env:
+  VERSION: ${{ inputs.version || github.ref_name }}
+
+jobs:
+  verify:
+    name: Quality gates and package checks
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain-file: rust-toolchain.toml
+          components: rustfmt, clippy, rust-src
+
+      - name: Install gate tools
+        run: |
+          cargo install cargo-nextest cargo-deny cargo-audit cargo-semver-checks --locked
+
+      - name: Format and lints
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests and docs
+        run: |
+          cargo nextest run --workspace --profile ci --locked
+          cargo test --workspace --doc --locked
+          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
+
+      - name: Dependency policy
+        run: |
+          cargo deny check
+          cargo audit --deny warnings
+
+      - name: Package list
+        run: cargo package --list --workspace --locked
+
+      - name: SemVer check
+        run: cargo semver-checks check-release -p reims-core
+
+      - name: Crate publish dry-run (opt-in)
+        if: vars.PUBLISH_CRATES == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --dry-run --locked -p reims-core
+
+  release:
+    name: Publish binaries
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: windows-x64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain-file: rust-toolchain.toml
+          target: ${{ matrix.target }}
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target ${{ matrix.target }} \
+            -p reims-studio -p vk-gpu-select
+          mkdir -p dist
+          binary="${{ matrix.target }}/release/reims-studio"
+          suffix="${{ matrix.suffix }}"
+          if [ "$suffix" = "windows-x64" ]; then binary="$binary.exe"; fi
+          cp "$binary" "dist/reims-studio-$suffix"
+          if [ "$suffix" = "windows-x64" ]; then
+            cp "${{ matrix.target }}/release/vk_gpu_select.dll" dist/VkLayer_reims_gpu_select.dll
+            cp crates/vk-gpu-select/VkLayer_reims_gpu_select.json dist/
+          else
+            cp "${{ matrix.target }}/release/libvk_gpu_select.so" dist/VkLayer_reims_gpu_select.so
+            cp crates/vk-gpu-select/VkLayer_reims_gpu_select_linux.json dist/VkLayer_reims_gpu_select.json
+          fi
+          sha256sum dist/* > dist/SHA256SUMS
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous="$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            git log --no-merges --pretty='- %s' "$previous..${VERSION}" > CHANGELOG.tmp
+          else
+            git log --no-merges --pretty='- %s' -20 > CHANGELOG.tmp
+          fi
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${VERSION}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "Reims Studio $tag" --notes-file CHANGELOG.tmp
+          shopt -s nullglob
+          gh release upload "$tag" dist/* --clobber
