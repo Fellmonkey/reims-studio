@@ -195,6 +195,7 @@ mod tests {
                     archive_size: 1,
                     url: String::from("https://example.invalid/a"),
                     supported_macos_range: String::from("26.4+"),
+                    changelog: None,
                 },
                 EngineRelease {
                     engine_id: String::from("linux64-master-b"),
@@ -205,6 +206,7 @@ mod tests {
                     archive_size: 1,
                     url: String::from("https://example.invalid/b"),
                     supported_macos_range: String::from("26.4+"),
+                    changelog: None,
                 },
             ],
         };

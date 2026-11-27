@@ -36,11 +36,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--abi-version", type=int, default=1)
     parser.add_argument("--supported-macos-range", default="26.4+")
+    parser.add_argument(
+        "--changelog",
+        type=Path,
+        help="Commit summaries published with this engine build",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    changelog = (
+        args.changelog.read_text(encoding="utf-8").strip()
+        if args.changelog and args.changelog.is_file()
+        else None
+    )
     engines = []
     for archive in sorted(args.assets.glob("*.tar.zst")):
         engine_id = archive.name.removesuffix(".tar.zst")
@@ -55,6 +65,7 @@ def main() -> None:
                 "archive_size": archive.stat().st_size,
                 "url": f"{args.base_url.rstrip('/')}/{quote(archive.name)}",
                 "supported_macos_range": args.supported_macos_range,
+                **({"changelog": changelog} if changelog else {}),
             }
         )
     args.output.write_text(

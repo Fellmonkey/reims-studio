@@ -426,6 +426,9 @@ pub struct EngineRelease {
     pub url: String,
     /// macOS versions supported by this bundle.
     pub supported_macos_range: String,
+    /// Commit summaries since the previous engine build, if published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changelog: Option<String>,
 }
 
 impl Validate for EngineRelease {
@@ -978,6 +981,7 @@ mod tests {
             archive_size: 1,
             url: String::from("https://example.invalid/engine.tar.zst"),
             supported_macos_range: String::from("26.4+"),
+            changelog: None,
         };
         let index = EngineIndex {
             schema_version: INDEX_SCHEMA_VERSION,
