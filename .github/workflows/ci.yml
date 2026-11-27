@@ -1,0 +1,51 @@
+name: CI
+
+# Quality gates for every pull request and push to main. Also called by the
+# release workflow so the same checks guard a tag.
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Format, lints, tests, docs and dependency policy
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: rustfmt, clippy, rust-src
+
+      - name: Install gate tools
+        run: |
+          cargo install cargo-nextest cargo-deny cargo-audit cargo-semver-checks --locked
+
+      - name: Format and lints
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests and docs
+        run: |
+          cargo nextest run --workspace --profile ci --locked
+          cargo test --workspace --doc --locked
+          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
+
+      - name: Dependency policy
+        run: |
+          cargo deny check
+          cargo audit --deny warnings
+
+      - name: Package list and SemVer
+        run: |
+          cargo package --list --workspace --locked
+          cargo semver-checks check-release -p reims-core

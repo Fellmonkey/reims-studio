@@ -18,7 +18,7 @@ toml.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 
-[build-dependencies]
+[target.'cfg(windows)'.build-dependencies]
 winres = "0.1.12"
 
 [lints]
