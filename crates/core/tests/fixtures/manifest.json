@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "abi_version": 1,
+  "engine_id": "win64-development-abc123",
+  "os": "windows",
+  "channel": "development",
+  "source_revision": "abc123",
+  "qemu_revision": "def456",
+  "rom_filename": "ReimsGraphics.rom",
+  "video_prop_name": "video-disable",
+  "ovmf_code_size": 2097152,
+  "supported_macos_range": "26.4+",
+  "va_driver_name": "nvidia",
+  "va_drivers_relpath": "vaapi",
+  "files": {
+    "bin/qemu-system-x86_64.exe": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "firmware/OVMF_CODE.fd": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "guest_kexts": [
+    "Graft.kext/Contents/Info.plist",
+    "ReimsGraphics.kext/Contents/Info.plist",
+    "RgfxGate.kext/Contents/Info.plist"
+  ]
+}

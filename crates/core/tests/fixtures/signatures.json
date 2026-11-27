@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "signatures": [
+    {
+      "id": "device_lost",
+      "pattern": "VK_DEVICE_LOST",
+      "advice": "Run the GPU isolation check and update the host driver.",
+      "severity": "critical"
+    },
+    {
+      "id": "exit_bs_start",
+      "pattern": "EXITBS:START",
+      "advice": "Enable verbose boot and check CPUID and OpenCore settings.",
+      "severity": "warning"
+    },
+    {
+      "id": "fatal_prefix",
+      "pattern": "reims-vgpu: fatal:",
+      "advice": "Collect a bug report with the full engine log.",
+      "severity": "critical"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+schema_version = 1
+name = "macos-tahoe"
+ram_mib = 8192
+vcpus = 4
+disk_bus = "nvme"
+installer_attached = true
+graphics = "reims"
+audio = true
+verbose = false
+resolution = { width = 1920, height = 1080 }
+hidpi = "1x"
+mac = "52:54:00:11:22:33"
+usb_devices = []
+scan_policy = 983811

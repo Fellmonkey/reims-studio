@@ -1,0 +1,4 @@
+schema_version = 1
+channel = "development"
+bridge_port = 8080
+qmp_port = 4444

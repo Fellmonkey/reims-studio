@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "engines": [
+    {
+      "engine_id": "win64-development-abc123",
+      "os": "windows",
+      "channel": "development",
+      "abi_version": 1,
+      "archive_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "archive_size": 209715200,
+      "url": "https://github.com/example/reims-studio/releases/download/engines/win64-development-abc123.tar.zst",
+      "supported_macos_range": "26.4+"
+    },
+    {
+      "engine_id": "linux64-master-def456",
+      "os": "linux",
+      "channel": "master",
+      "abi_version": 1,
+      "archive_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "archive_size": 157286400,
+      "url": "https://github.com/example/reims-studio/releases/download/engines/linux64-master-def456.tar.zst",
+      "supported_macos_range": "26.4+"
+    }
+  ]
+}
