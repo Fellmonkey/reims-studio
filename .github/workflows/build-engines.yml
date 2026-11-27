@@ -19,6 +19,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_unchanged:
+        description: Skip compilation when no watched build input changed
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "engines/**"
@@ -39,8 +44,64 @@ env:
   PUBLISH: ${{ inputs.publish || github.event_name == 'push' }}
 
 jobs:
+  decide:
+    name: Check whether a rebuild is needed
+    runs-on: ubuntu-22.04
+    outputs:
+      rebuild: ${{ steps.check.outputs.rebuild }}
+      previous_revision: ${{ steps.previous.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Clone the engine source for input comparison
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VGPU_REF" "$VGPU_REPO" upstream/reims-vgpu
+
+      - name: Download the previous build state
+        id: previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          gh release download "engines-$CHANNEL" --repo "$GITHUB_REPOSITORY" \
+            --dir state --pattern 'build-state.json' || true
+          revision=""
+          if [ -f state/build-state.json ]; then
+            revision="$(python3 -c 'import json; print(json.load(open("state/build-state.json")).get("revision", ""))' 2>/dev/null || true)"
+          fi
+          printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Compare watched build inputs
+        id: check
+        run: |
+          set -euo pipefail
+          force=()
+          if [ "${{ inputs.skip_unchanged }}" != "true" ]; then
+            force=(--force)
+          fi
+          python3 scripts/ci/check_rebuild.py \
+            --upstream upstream/reims-vgpu \
+            --local . \
+            --state state/build-state.json \
+            --output state/build-state.json \
+            --vgpu-ref "$VGPU_REF" \
+            --qemu-ref "$QEMU_REF" \
+            --qemu-ref-windows "$QEMU_REF_WINDOWS" \
+            --channel "$CHANNEL" "${force[@]}"
+
+      - name: Upload the new build state
+        uses: actions/upload-artifact@v7
+        with:
+          name: engine-build-state
+          path: state/build-state.json
+          if-no-files-found: error
+
   windows:
     name: Windows engine (CLANG64)
+    needs: decide
+    if: ${{ needs.decide.outputs.rebuild == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -150,7 +211,7 @@ jobs:
         run: bash scripts/ci/pack.sh
 
       - name: Upload the engine archive
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: engine-win64-${{ env.CHANNEL }}
           path: upstream/reims-vgpu/*.tar.zst
@@ -158,6 +219,8 @@ jobs:
 
   linux:
     name: Linux engine (ubuntu-22.04)
+    needs: decide
+    if: ${{ needs.decide.outputs.rebuild == 'true' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -251,7 +314,7 @@ jobs:
         run: bash scripts/ci/pack.sh
 
       - name: Upload the engine archive
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: engine-linux64-${{ env.CHANNEL }}
           path: upstream/reims-vgpu/*.tar.zst
@@ -259,25 +322,39 @@ jobs:
 
   publish-index:
     name: Publish index and signatures
-    needs: [windows, linux]
-    if: ${{ inputs.publish || github.event_name == 'push' }}
+    needs: [decide, windows, linux]
+    if: ${{ always() && (inputs.publish || github.event_name == 'push') && needs.windows.result == 'success' && needs.linux.result == 'success' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
 
       - name: Download the built engine archives
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           pattern: engine-*-*
           path: assets
           merge-multiple: true
 
-      - name: Build index.json
+      - name: Download the build state
+        uses: actions/download-artifact@v7
+        with:
+          name: engine-build-state
+          path: state
+
+      - name: Build the changelog and index.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          python3 scripts/make_changelog.py \
+            --repo "$VGPU_REPO" \
+            --from "${{ needs.decide.outputs.previous_revision }}" \
+            --to "$VGPU_REF" \
+            --output CHANGELOG.md
           python3 scripts/make_index.py \
             --assets assets \
             --base-url "https://github.com/${{ github.repository }}/releases/download/engines-$CHANNEL" \
+            --changelog CHANGELOG.md \
             --output index.json
 
       - name: Publish archives and indexes
@@ -290,5 +367,5 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --title "Engines $CHANNEL" --generate-notes
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
-            assets/*.tar.zst index.json \
+            assets/*.tar.zst index.json CHANGELOG.md state/build-state.json \
             "$(pwd)/crates/core/tests/fixtures/signatures.json"

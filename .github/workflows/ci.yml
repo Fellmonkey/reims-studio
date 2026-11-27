@@ -27,7 +27,7 @@ jobs:
 
       - name: Install gate tools
         run: |
-          cargo install cargo-nextest cargo-deny cargo-audit cargo-semver-checks --locked
+          cargo install cargo-nextest cargo-deny cargo-audit --locked
 
       - name: Format and lints
         run: |
@@ -45,7 +45,5 @@ jobs:
           cargo deny check
           cargo audit --deny warnings
 
-      - name: Package list and SemVer
-        run: |
-          cargo package --list --workspace --locked
-          cargo semver-checks check-release -p reims-core
+      - name: Package list
+        run: cargo package --list --workspace --locked

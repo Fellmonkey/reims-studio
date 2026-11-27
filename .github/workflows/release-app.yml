@@ -50,6 +50,14 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+      # reims-core is not published yet, so cargo-semver-checks has no baseline
+      # in the registry. Run it only when crate publishing is explicitly on.
+      - name: SemVer check (opt-in)
+        if: vars.PUBLISH_CRATES == 'true'
+        run: |
+          cargo install cargo-semver-checks --locked
+          cargo semver-checks check-release -p reims-core
+
       - name: Build release binaries
         shell: bash
         run: |
