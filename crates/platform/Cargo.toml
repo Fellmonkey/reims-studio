@@ -1,0 +1,16 @@
+[package]
+name = "reims-platform"
+version = "0.1.0"
+description = "Versioned QEMU command adapter and host checks for Reims Studio"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+reims-core = { path = "../core" }
+thiserror.workspace = true
+sysinfo.workspace = true
+
+[lints]
+workspace = true
