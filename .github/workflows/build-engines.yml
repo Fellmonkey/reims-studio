@@ -1,0 +1,299 @@
+name: Build engines
+
+# CI builds the engine outside the launcher. The launcher never compiles an
+# engine and never links against reims-vgpu, metal2vulkan or reims-util.
+# Revisions come from repository variables so a pinned upstream SHA can be
+# changed without editing the workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Engine channel to build
+        required: true
+        type: choice
+        default: master
+        options: [master, development, patched]
+      publish:
+        description: Publish archives to GitHub Releases
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "engines/**"
+
+permissions:
+  contents: write
+
+env:
+  VGPU_REPO: https://github.com/steelbrain/reims-vgpu.git
+  QEMU_REPO: https://github.com/steelbrain/qemu-reims-vgpu.git
+  VGPU_REF: ${{ vars.VGPU_REF || 'master' }}
+  QEMU_REF: ${{ vars.QEMU_REF || 'reims-graphics' }}
+  CHANNEL: ${{ inputs.channel || 'master' }}
+  PUBLISH: ${{ inputs.publish || github.event_name == 'push' }}
+
+jobs:
+  windows:
+    name: Windows engine (CLANG64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone pinned upstream revisions
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "$VGPU_REF" "$VGPU_REPO" upstream/reims-vgpu
+          git clone --filter=blob:none "$QEMU_REPO" upstream/qemu
+          git -C upstream/qemu checkout "$QEMU_REF"
+
+      - name: Install upstream Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain-file: upstream/reims-vgpu/rust-toolchain.toml
+
+      - name: Install MSYS2 tools from upstream script
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: mingw-w64-clang-x86_64-toolchain make zstd
+
+      - name: Install upstream build dependencies
+        shell: msys2 {0}
+        run: |
+          cd upstream/reims-vgpu
+          bash scripts/install-ctl.sh
+          pacman --noconfirm -S --needed zstd
+
+      - name: Check patch queue
+        if: env.CHANNEL == 'patched'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for patch in patches/*.patch; do
+            git -C upstream/reims-vgpu apply --check "../../$patch"
+            git -C upstream/reims-vgpu apply "../../$patch"
+          done
+
+      - name: Build QEMU and the engine tools
+        shell: msys2 {0}
+        run: |
+          cd upstream/reims-vgpu
+          rm -rf build/qemu
+          make qemu QEMU_CONFIGURE="--target-list=x86_64-softmmu --enable-libusb --disable-docs --disable-debug-info"
+
+      - name: Collect binaries and assert device support
+        id: collect
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd upstream/reims-vgpu
+          root="$(pwd)"
+          mkdir -p "$root/bundle/bin" "$root/bundle/firmware/guest" "$root/bundle/vaapi"
+          cp build/qemu/qemu-system-x86_64.exe "$root/bundle/bin/"
+          cp build/qemu/qemu-img.exe "$root/bundle/bin/"
+          cp target/dist-vulkan/bin/reims-vgpu-compile.exe "$root/bundle/bin/"
+          cp firmware/prebuilt/*.rom "$root/bundle/firmware/"
+          cp -r guest/prebuilt/. "$root/bundle/firmware/guest/"
+          strip "$root/bundle/bin/qemu-system-x86_64.exe" || true
+          strip "$root/bundle/bin/qemu-img.exe" || true
+          strip "$root/bundle/bin/reims-vgpu-compile.exe" || true
+
+          qemu="$root/bundle/bin/qemu-system-x86_64.exe"
+          "$qemu" -device help | grep -q reims-graphics-pci
+          "$qemu" -device help | grep -q usb-host
+          prop="$("$qemu" -device reims-graphics-pci,help | grep -oE '[a-z0-9_-]+=<(on|off)>' | head -n1 | cut -d= -f1)"
+          test -n "$prop"
+          echo "video_prop=$prop" >> "$GITHUB_OUTPUT"
+
+          # VA-API is mandatory on Windows. Never ship vulkan-1.dll.
+          rm -f "$root/bundle/bin/vulkan-1.dll"
+          cp /clang64/bin/libva*.dll "$root/bundle/vaapi/" 2>/dev/null || true
+          cp /clang64/bin/*_drv_video.dll "$root/bundle/vaapi/"
+          driver="$(basename "$(ls "$root/bundle/vaapi/"*_drv_video.dll | head -n1)")"
+          echo "va_driver=$driver" >> "$GITHUB_OUTPUT"
+
+      - name: Use MSVC environment for the manifest merge
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build the static GPU selection layer
+        shell: pwsh
+        run: |
+          cargo build --release -p vk-gpu-select --target x86_64-pc-windows-msvc --locked
+          $bundle = "upstream/reims-vgpu/bundle"
+          Copy-Item target/x86_64-pc-windows-msvc/release/vk_gpu_select.dll "$bundle/bin/VkLayer_reims_gpu_select.dll"
+          Copy-Item crates/vk-gpu-select/VkLayer_reims_gpu_select.json "$bundle/bin/"
+
+      - name: Embed UTF-8 and longPathAware manifests
+        shell: pwsh
+        run: |
+          $bundle = "upstream/reims-vgpu/bundle/bin"
+          foreach ($binary in @("qemu-system-x86_64.exe", "reims-vgpu-compile.exe")) {
+            $path = Join-Path $bundle $binary
+            mt.exe -nologo -manifest scripts/app.manifest "-outputresource:$path;#1"
+          }
+
+      - name: Generate manifest.json
+        shell: pwsh
+        run: |
+          $bundle = "upstream/reims-vgpu/bundle"
+          $rom = (Get-ChildItem "$bundle/firmware" -Filter *.rom | Select-Object -First 1).Name
+          $ovmf = (Get-Item "$bundle/firmware/OVMF_CODE.fd" -ErrorAction SilentlyContinue).Length
+          if (-not $ovmf) { $ovmf = 2097152 }
+          python scripts/make_manifest.py `
+            --bundle $bundle --output "$bundle/manifest.json" `
+            --engine-id "win64-$env:CHANNEL-${{ github.sha }}" `
+            --os windows --channel $env:CHANNEL --abi-version 1 `
+            --source-revision ${{ github.sha }} --qemu-revision $env:QEMU_REF `
+            --rom-filename $rom --video-prop-name "${{ steps.collect.outputs.video_prop }}" `
+            --ovmf-size $ovmf --supported-macos-range "26.4+" `
+            --set-toml upstream/reims-vgpu/guest/prebuilt/set.toml `
+            --va-driver-name "${{ steps.collect.outputs.va_driver }}" --va-drivers-relpath vaapi
+
+      - name: Pack and upload the archive
+        shell: msys2 {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd upstream/reims-vgpu
+          id="win64-$CHANNEL-${GITHUB_SHA}"
+          (cd bundle && tar -cf - .) | zstd -T0 -19 > "$id.tar.zst"
+          sha256sum "$id.tar.zst"
+          gh release view "engines-$CHANNEL" >/dev/null 2>&1 || \
+            gh release create "engines-$CHANNEL" --title "Engines $CHANNEL" --generate-notes
+          if [ "$PUBLISH" = "true" ]; then
+            gh release upload "engines-$CHANNEL" "$id.tar.zst" --clobber
+          fi
+
+  linux:
+    name: Linux engine (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h .
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config clang lld make \
+            libusb-1.0-0-dev zstd python3
+
+      - name: Clone pinned upstream revisions
+        run: |
+          git clone --depth 1 --branch "$VGPU_REF" "$VGPU_REPO" upstream/reims-vgpu
+          git clone --filter=blob:none "$QEMU_REPO" upstream/qemu
+          git -C upstream/qemu checkout "$QEMU_REF"
+
+      - name: Install upstream Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain-file: upstream/reims-vgpu/rust-toolchain.toml
+
+      - name: Check patch queue
+        if: env.CHANNEL == 'master'
+        run: echo "Clean upstream channel; no patches to apply."
+
+      - name: Build QEMU and the engine tools
+        run: |
+          cd upstream/reims-vgpu
+          rm -rf build/qemu
+          make qemu QEMU_CONFIGURE="--target-list=x86_64-softmmu --enable-libusb --disable-docs --disable-debug-info"
+
+      - name: Collect binaries and assert device support
+        id: collect
+        run: |
+          set -euo pipefail
+          cd upstream/reims-vgpu
+          root="$(pwd)"
+          mkdir -p "$root/bundle/bin" "$root/bundle/firmware/guest" "$root/bundle/vaapi"
+          cp build/qemu/qemu-system-x86_64 "$root/bundle/bin/"
+          cp build/qemu/qemu-img "$root/bundle/bin/"
+          cp target/dist-vulkan/bin/reims-vgpu-compile "$root/bundle/bin/"
+          cp firmware/prebuilt/*.rom "$root/bundle/firmware/"
+          cp -r guest/prebuilt/. "$root/bundle/firmware/guest/"
+          strip "$root/bundle/bin/qemu-system-x86_64" || true
+          strip "$root/bundle/bin/qemu-img" || true
+          strip "$root/bundle/bin/reims-vgpu-compile" || true
+          qemu="$root/bundle/bin/qemu-system-x86_64"
+          "$qemu" -device help | grep -q reims-graphics-pci
+          "$qemu" -device help | grep -q usb-host
+          prop="$("$qemu" -device reims-graphics-pci,help | grep -oE '[a-z0-9_-]+=<(on|off)>' | head -n1 | cut -d= -f1)"
+          test -n "$prop"
+          echo "video_prop=$prop" >> "$GITHUB_OUTPUT"
+          # glibc, libvulkan and Mesa/NVIDIA drivers stay on the host.
+          find "$root/bundle/bin" -name 'libc.so*' -o -name 'libvulkan.so*' -delete
+
+      - name: Build the static GPU selection layer
+        run: |
+          cargo build --release -p vk-gpu-select --target x86_64-unknown-linux-gnu --locked
+          bundle="upstream/reims-vgpu/bundle"
+          cp target/x86_64-unknown-linux-gnu/release/libvk_gpu_select.so "$bundle/bin/VkLayer_reims_gpu_select.so"
+          cp crates/vk-gpu-select/VkLayer_reims_gpu_select_linux.json "$bundle/bin/VkLayer_reims_gpu_select.json"
+
+      - name: Generate manifest.json
+        run: |
+          bundle="upstream/reims-vgpu/bundle"
+          rom="$(basename "$(ls "$bundle"/firmware/*.rom | head -n1)")"
+          if [ -f "$bundle/firmware/OVMF_CODE.fd" ]; then
+            ovmf="$(stat -c %s "$bundle/firmware/OVMF_CODE.fd")"
+          else
+            ovmf=2097152
+          fi
+          python3 scripts/make_manifest.py \
+            --bundle "$bundle" --output "$bundle/manifest.json" \
+            --engine-id "linux64-$CHANNEL-${GITHUB_SHA}" \
+            --os linux --channel "$CHANNEL" --abi-version 1 \
+            --source-revision "$GITHUB_SHA" --qemu-revision "$QEMU_REF" \
+            --rom-filename "$rom" --video-prop-name "${{ steps.collect.outputs.video_prop }}" \
+            --ovmf-size "$ovmf" --supported-macos-range "26.4+" \
+            --set-toml upstream/reims-vgpu/guest/prebuilt/set.toml
+
+      - name: Pack and upload the archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd upstream/reims-vgpu
+          id="linux64-$CHANNEL-${GITHUB_SHA}"
+          (cd bundle && tar -cf - .) | zstd -T0 -19 > "$id.tar.zst"
+          sha256sum "$id.tar.zst"
+          gh release view "engines-$CHANNEL" >/dev/null 2>&1 || \
+            gh release create "engines-$CHANNEL" --title "Engines $CHANNEL" --generate-notes
+          if [ "$PUBLISH" = "true" ]; then
+            gh release upload "engines-$CHANNEL" "$id.tar.zst" --clobber
+          fi
+
+  publish-index:
+    name: Publish index and signatures
+    needs: [windows, linux]
+    if: ${{ inputs.publish || github.event_name == 'push' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release assets and build index.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "engines-$CHANNEL" --dir assets --pattern '*.tar.zst'
+          python3 scripts/make_index.py \
+            --assets assets \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/engines-$CHANNEL" \
+            --output index.json
+
+      - name: Upload indexes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "engines-$CHANNEL" index.json \
+            "$(pwd)/crates/core/tests/fixtures/signatures.json" --clobber
