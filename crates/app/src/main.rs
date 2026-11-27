@@ -23,7 +23,49 @@ const TICKS_TO_CLEAR_SENTINEL: u64 = 12;
 const LOG_LINES: usize = 72;
 const POST_INSTALL_COMMAND: &str = "defaults write \"/Volumes/<Disk>/Library/Preferences/.GlobalPreferences\" METAL_ERROR_MODE -int 5";
 
+mod cli;
+
 fn main() -> iced::Result {
+    let mut arguments = std::env::args().skip(1);
+    match arguments.next().as_deref() {
+        Some("--check") => return headless("--check", false),
+        Some("--e2e") => return headless("--e2e", true),
+        Some("--help") | Some("-h") => {
+            println!("Usage: reims-studio [--check | --e2e | --help]");
+            println!("  --check  verify that a built engine is visible to the launcher");
+            println!("  --e2e    also verify the engine archive SHA256");
+            return Ok(());
+        }
+        Some(other) => {
+            eprintln!("Unknown option: {other}");
+            std::process::exit(2);
+        }
+        None => {}
+    }
+    launch_gui()
+}
+
+fn headless(mode: &str, require_archive: bool) -> iced::Result {
+    match cli::check(&portable_root(), require_archive) {
+        Ok(report) => {
+            println!("{report}");
+            println!("{mode}: OK");
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("{mode}: FAIL: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn portable_root() -> PathBuf {
+    std::env::var_os("REIMS_PORTABLE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+fn launch_gui() -> iced::Result {
     // SAFETY: this runs once on the main thread before iced creates any window
     // or executor thread, so no concurrent reader can observe the change.
     unsafe { std::env::set_var("ICED_BACKEND", "tiny-skia") };
@@ -107,9 +149,7 @@ enum Message {
 }
 
 fn boot() -> (Studio, Task<Message>) {
-    let portable_root = std::env::var_os("REIMS_PORTABLE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let portable_root = portable_root();
     let sentinel = portable_root.join("ui_booting.flag");
     if let Some(parent) = sentinel.parent()
         && std::fs::create_dir_all(parent).is_ok()

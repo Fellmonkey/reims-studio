@@ -2696,6 +2696,7 @@ dependencies = [
  "iced",
  "rand",
  "reims-core",
+ "reims-engine-mgr",
  "reims-platform",
  "tempfile",
  "toml 1.2.3+spec-1.1.0",
