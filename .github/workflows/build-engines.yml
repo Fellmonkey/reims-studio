@@ -39,7 +39,7 @@ jobs:
     name: Windows engine (CLANG64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Clone pinned upstream revisions
         shell: bash
@@ -172,7 +172,7 @@ jobs:
     name: Linux engine (ubuntu-22.04)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free runner disk space
         run: |
@@ -277,7 +277,7 @@ jobs:
     if: ${{ inputs.publish || github.event_name == 'push' }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download release assets and build index.json
         env:
