@@ -23,18 +23,24 @@
 //! ```
 
 mod compact;
+mod dmg;
 mod manager;
 mod opencore;
 mod paths;
+mod recovery;
 mod snapshots;
 mod unpack;
 
 pub use compact::{
     ExternalCommand, can_compact, compact_command, create_disk_command, run as run_external,
 };
+pub use dmg::{AuditReport, audit_dmg, to_readonly_image};
 pub use manager::{EngineError, select_release, sha256_file, supports_macos, verify_archive};
 pub use opencore::{OcPatch, check_ovmf_pair, copy_kexts, patch_config, patched_paths};
 pub use paths::{cache_dir, engine_dir, ensure_layout, shader_cache_dir, vm_dir};
+pub use recovery::{
+    Chunk, ChunkList, RECOVERY_URL, RecoveryRequest, SWSCAN_URL, parse_chunklist, verify_chunk,
+};
 pub use snapshots::{
     SnapshotMeta, create_snapshot, list_snapshots, read_snapshot_meta, restore_snapshot,
 };

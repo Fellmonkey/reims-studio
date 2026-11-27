@@ -56,6 +56,12 @@ pub enum EngineError {
         /// Requested version.
         version: String,
     },
+    /// The DMG audit reported High or Critical anomalies.
+    #[error("DMG audit blocked the image: {}", .0.join("; "))]
+    DmgAudit(Vec<String>),
+    /// A chunk signature could not be decoded.
+    #[error("invalid chunk signature: {0}")]
+    InvalidSignature(String),
 }
 
 /// Returns the first release matching host and channel.
