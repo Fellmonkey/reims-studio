@@ -1,0 +1,26 @@
+# Advisory exceptions for transitive dependencies of iced 0.14.
+# Review each entry when the dependency graph changes.
+
+[advisories]
+informational_warnings = ["unmaintained"]
+ignore = [
+    # ttf-parser is pulled by cosmic-text through iced_tiny_skia. No fixed
+    # upgrade is available; the launcher does not parse untrusted fonts.
+    "RUSTSEC-2026-0192",
+    # zbus stack is pulled by iced_winit on Linux for desktop portals. The
+    # affected APIs are not exercised by the launcher.
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0372",
+    # lru 0.16 is required by iced 0.14; the unsound LruCache::pop path is not
+    # used by Reims Studio. Upgrade when iced moves to lru 0.18+.
+    "RUSTSEC-2026-0253",
+]
+
+[target]
+arch = ["x86_64"]
+os = ["linux", "windows"]
+
+[yanked]
+enabled = true
+update_index = true
