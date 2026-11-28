@@ -69,6 +69,9 @@ if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
   for binary in "$qemu_name" "$img_name" "$helper_name"; do
     copy_runtime_dlls "$root/bundle/bin/$binary"
   done
+  # ldd on MSYS2 misses some transitive GTK dependencies (libxkbcommon, ...).
+  # Copying every lib*.dll is cheap and makes the bundle genuinely self-contained.
+  cp -f /clang64/bin/lib*.dll "$root/bundle/bin/"
 
   # VA-API is mandatory on Windows. Never ship the loader DLL.
   rm -f "$root/bundle/bin/vulkan-1.dll"
