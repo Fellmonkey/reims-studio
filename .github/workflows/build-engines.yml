@@ -24,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      changelog:
+        description: Optional prepared changelog Markdown (for example an AI summary); skips GitHub commit collection
+        required: false
+        type: string
+        default: ""
   push:
     tags:
       - "engines/**"
@@ -344,17 +349,26 @@ jobs:
       - name: Build the changelog and index.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUSTOM_CHANGELOG: ${{ inputs.changelog }}
         run: |
           set -euo pipefail
-          python3 scripts/make_changelog.py \
-            --repo "$VGPU_REPO" \
-            --from "${{ needs.decide.outputs.previous_revision }}" \
-            --to "$VGPU_REF" \
-            --output CHANGELOG.md
+          custom_args=()
+          if [ -n "$CUSTOM_CHANGELOG" ]; then
+            printf '%s\n' "$CUSTOM_CHANGELOG" > prepared-changelog.md
+            custom_args=(--source-file prepared-changelog.md)
+          else
+            custom_args=(--repo "$VGPU_REPO" \
+              --from "${{ needs.decide.outputs.previous_revision }}" \
+              --to "$VGPU_REF")
+          fi
+          python3 scripts/make_changelog.py "${custom_args[@]}" --output CHANGELOG.md
           python3 scripts/make_index.py \
             --assets assets \
             --base-url "https://github.com/${{ github.repository }}/releases/download/engines-$CHANNEL" \
             --changelog CHANGELOG.md \
+            --built-at "$GITHUB_RUN_STARTED_AT" \
+            --source-revision "$VGPU_REF" \
+            --qemu-revision "$QEMU_REF" \
             --output index.json
 
       - name: Publish archives and indexes
@@ -365,7 +379,19 @@ jobs:
           tag="engines-$CHANNEL"
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "Engines $CHANNEL" --generate-notes
+              --title "Engines $CHANNEL" --notes-file CHANGELOG.md
+          # Old revision-suffixed archives would otherwise accumulate forever.
+          keep="$(mktemp)"
+          printf '%s\n' index.json CHANGELOG.md build-state.json signatures.json > "$keep"
+          for archive in assets/*.tar.zst; do
+            basename "$archive" >> "$keep"
+          done
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | while read -r name; do
+            if ! grep -Fxq "$name" "$keep"; then
+              gh release delete-asset "$tag" "$name" --yes --repo "$GITHUB_REPOSITORY"
+            fi
+          done
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
             assets/*.tar.zst index.json CHANGELOG.md state/build-state.json \
             "$(pwd)/crates/core/tests/fixtures/signatures.json"

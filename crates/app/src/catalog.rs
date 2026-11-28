@@ -156,6 +156,55 @@ pub fn line(engine: &EngineRelease) -> String {
     )
 }
 
+/// One commit entry parsed from the generated changelog Markdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitEntry {
+    /// Short commit SHA.
+    pub sha: String,
+    /// Author date as published by GitHub.
+    pub date: String,
+    /// First line of the commit message.
+    pub subject: String,
+    /// Remaining commit message lines.
+    pub body: String,
+}
+
+/// Parses `## <sha> · <date>` sections into accordion entries.
+pub fn parse_changelog(raw: &str) -> Vec<CommitEntry> {
+    let mut entries = Vec::new();
+    let mut current: Option<CommitEntry> = None;
+    for line in raw.lines() {
+        if let Some(rest) = line.strip_prefix("## ") {
+            if let Some(entry) = current.take() {
+                entries.push(entry);
+            }
+            let (sha, date) = rest.split_once(" · ").unwrap_or((rest, ""));
+            current = Some(CommitEntry {
+                sha: sha.trim().to_string(),
+                date: date.trim().to_string(),
+                subject: String::new(),
+                body: String::new(),
+            });
+        } else if let Some(entry) = current.as_mut() {
+            if let Some(subject) = line.strip_prefix("### ") {
+                entry.subject = subject.trim().to_string();
+            } else if entry.subject.is_empty() && line.trim().is_empty() {
+                continue;
+            } else {
+                if !entry.body.is_empty() {
+                    entry.body.push('\n');
+                }
+                entry.body.push_str(line);
+            }
+        }
+    }
+    if let Some(entry) = current {
+        entries.push(entry);
+    }
+    entries.retain(|entry| !entry.sha.is_empty() && !entry.sha.starts_with('#'));
+    entries
+}
+
 /// Returns the release page for an engine's download URL.
 pub fn release_url(engine: &EngineRelease) -> Option<String> {
     let marker = "/releases/download/";
@@ -224,6 +273,17 @@ mod tests {
     }
 
     #[test]
+    fn changelog_sections_become_commit_entries() {
+        let raw = "# Engine changelog\nGenerated: 2026-11-28T00:00:00+00:00\n\n## abc123 · 2026-11-27T12:00:00Z\n### Fix video decode\n\nBody line one.\nBody line two.\n\n## def456 · 2026-11-26T12:00:00Z\n### Update QEMU\n";
+        let entries = parse_changelog(raw);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].sha, "abc123");
+        assert_eq!(entries[0].subject, "Fix video decode");
+        assert_eq!(entries[0].body, "Body line one.\nBody line two.\n");
+        assert_eq!(entries[1].subject, "Update QEMU");
+    }
+
+    #[test]
     fn release_url_points_to_the_tag_page() {
         let engine = EngineRelease {
             engine_id: String::from("win64-master-a"),
@@ -237,6 +297,9 @@ mod tests {
             ),
             supported_macos_range: String::from("26.4+"),
             changelog: None,
+            built_at: None,
+            source_revision: None,
+            qemu_revision: None,
         };
         assert_eq!(
             release_url(&engine).as_deref(),
@@ -256,6 +319,9 @@ mod tests {
             url: String::from("https://example.invalid/a"),
             supported_macos_range: String::from("26.4+"),
             changelog: None,
+            built_at: None,
+            source_revision: None,
+            qemu_revision: None,
         };
         assert!(supports_macos(&engine, "26.4"));
         assert!(supports_macos(&engine, "27.1"));

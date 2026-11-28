@@ -429,6 +429,15 @@ pub struct EngineRelease {
     /// Commit summaries since the previous engine build, if published.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changelog: Option<String>,
+    /// UTC timestamp of this engine build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_at: Option<String>,
+    /// Pinned `reims-vgpu` revision recorded in the index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_revision: Option<String>,
+    /// Pinned QEMU fork revision recorded in the index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qemu_revision: Option<String>,
 }
 
 impl Validate for EngineRelease {
@@ -982,6 +991,9 @@ mod tests {
             url: String::from("https://example.invalid/engine.tar.zst"),
             supported_macos_range: String::from("26.4+"),
             changelog: None,
+            built_at: None,
+            source_revision: None,
+            qemu_revision: None,
         };
         let index = EngineIndex {
             schema_version: INDEX_SCHEMA_VERSION,

@@ -196,6 +196,9 @@ mod tests {
                     url: String::from("https://example.invalid/a"),
                     supported_macos_range: String::from("26.4+"),
                     changelog: None,
+                    built_at: None,
+                    source_revision: None,
+                    qemu_revision: None,
                 },
                 EngineRelease {
                     engine_id: String::from("linux64-master-b"),
@@ -207,6 +210,9 @@ mod tests {
                     url: String::from("https://example.invalid/b"),
                     supported_macos_range: String::from("26.4+"),
                     changelog: None,
+                    built_at: None,
+                    source_revision: None,
+                    qemu_revision: None,
                 },
             ],
         };

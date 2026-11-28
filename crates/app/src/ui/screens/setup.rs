@@ -265,6 +265,20 @@ fn engine<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, Them
                 .changelog
                 .as_deref()
                 .unwrap_or("No changelog published yet.");
+            let entries = catalog::parse_changelog(changelog);
+            let changelog_view: Element<'_, Message, Theme> = if entries.is_empty() {
+                t::scroll_box(text(changelog).size(12.0).width(Length::Fill))
+            } else {
+                let mut accordion = shadcn_iced::accordion::accordion();
+                for entry in entries {
+                    accordion = accordion.item(
+                        format!("{} · {}", entry.sha, entry.date),
+                        column![text(entry.subject).size(13.0), text(entry.body).size(12.0)]
+                            .spacing(6),
+                    );
+                }
+                t::scroll_box(accordion)
+            };
             column![
                 text(&engine.engine_id).size(15.0),
                 t::muted(
@@ -276,7 +290,16 @@ fn engine<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, Them
                         catalog::size(engine.archive_size)
                     )
                 ),
-                t::scroll_box(text(changelog).size(12.0).width(Length::Fill)),
+                t::muted(
+                    theme,
+                    format!(
+                        "Built {} · source {} · QEMU {}",
+                        engine.built_at.as_deref().unwrap_or("unknown"),
+                        engine.source_revision.as_deref().unwrap_or("unknown"),
+                        engine.qemu_revision.as_deref().unwrap_or("unknown")
+                    )
+                ),
+                changelog_view,
                 row![
                     install_control,
                     t::secondary("Copy download URL", Message::CopyEngineUrl),
@@ -326,10 +349,18 @@ fn macos<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, Theme
         "Compatibility",
         column![
             t::body(theme, "Which macOS version will you install?"),
+            shadcn_iced::select::select(Some(studio.macos_version.clone()), Message::MacVersion,)
+                .placeholder("Select macOS version")
+                .label("Version")
+                .option(String::from("26.4"), "macOS 26.4")
+                .option(String::from("26.5"), "macOS 26.5")
+                .option(String::from("27.0"), "macOS 27.0")
+                .option(String::from("27.1"), "macOS 27.1")
+                .option(String::from("27.2"), "macOS 27.2"),
             field(
-                "Version",
+                "Custom",
                 &studio.macos_version,
-                "26.4",
+                "e.g. 28.0",
                 Message::MacVersion
             ),
             t::muted(
@@ -357,7 +388,6 @@ fn vm<'a>(studio: &'a Studio, _theme: &'a Theme) -> Element<'a, Message, Theme> 
                 "1920x1080",
                 Message::Resolution
             ),
-            t::secondary("Render QEMU command", Message::BuildCommand),
         ]
         .spacing(10)
         .into(),
@@ -379,6 +409,7 @@ fn install<'a>(theme: &'a Theme) -> Element<'a, Message, Theme> {
                 "3 · Eject the installer and apply OpenCore settings."
             ),
             t::secondary("Apply post-install settings", Message::PostInstall),
+            t::secondary("Render QEMU command", Message::BuildCommand),
         ]
         .spacing(10)
         .into(),

@@ -41,6 +41,9 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Commit summaries published with this engine build",
     )
+    parser.add_argument("--built-at", default="", help="UTC build timestamp")
+    parser.add_argument("--source-revision", default="", help="pinned engine source revision")
+    parser.add_argument("--qemu-revision", default="", help="pinned QEMU revision")
     return parser.parse_args()
 
 
@@ -66,6 +69,9 @@ def main() -> None:
                 "url": f"{args.base_url.rstrip('/')}/{quote(archive.name)}",
                 "supported_macos_range": args.supported_macos_range,
                 **({"changelog": changelog} if changelog else {}),
+                **({"built_at": args.built_at} if args.built_at else {}),
+                **({"source_revision": args.source_revision} if args.source_revision else {}),
+                **({"qemu_revision": args.qemu_revision} if args.qemu_revision else {}),
             }
         )
     args.output.write_text(
