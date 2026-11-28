@@ -1,6 +1,10 @@
 [advisories]
 yanked = "deny"
-# ignore = [{ id = "RUSTSEC-YYYY-NNNN", reason = "...", expires = "2027-01-01" }]
+# Transitive font/wgpu dependencies of shadcn-iced have no fixed upgrade.
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained but still builds; transitive via iced text shaping", expiry = "2027-12-31" },
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained but still builds; transitive via iced font shaping", expiry = "2027-12-31" },
+]
 
 [bans]
 multiple-versions = "warn"
@@ -8,7 +12,8 @@ wildcards = "deny"
 
 [licenses]
 # CDLA-Permissive-2.0 covers the Mozilla root certificate data in webpki-roots.
-allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSL-1.0", "ISC", "Zlib", "MPL-2.0", "Unicode-3.0", "CDLA-Permissive-2.0"]
+# CC0-1.0 (hexf-parse) and NCSA (libfuzzer-sys) arrive via shadcn-iced's iced features.
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSL-1.0", "ISC", "Zlib", "MPL-2.0", "Unicode-3.0", "CDLA-Permissive-2.0", "CC0-1.0", "NCSA"]
 
 [sources]
 unknown-registry = "deny"

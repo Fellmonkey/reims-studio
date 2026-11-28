@@ -15,6 +15,9 @@ ignore = [
     # lru 0.16 is required by iced 0.14; the unsound LruCache::pop path is not
     # used by Reims Studio. Upgrade when iced moves to lru 0.18+.
     "RUSTSEC-2026-0253",
+    # Transitive font/wgpu dependencies of shadcn-iced; no fixed upgrade yet.
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0206",
 ]
 
 [target]

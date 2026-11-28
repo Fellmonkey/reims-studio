@@ -28,9 +28,10 @@ use reims_platform::preflight::{
     Finding, Level, PreflightDoctor, PreflightInput, PreflightReport, WhpxState,
     available_memory_mib,
 };
+use shadcn_iced::prelude::{ApplicationExt, Mode};
 
 use catalog::CatalogSource;
-use theme::Notice;
+use ui::theme::Notice;
 
 const TICKS_TO_CLEAR_SENTINEL: u64 = 12;
 const LOG_LINES: usize = 72;
@@ -39,9 +40,7 @@ const POST_INSTALL_COMMAND: &str = "defaults write \"/Volumes/<Disk>/Library/Pre
 mod catalog;
 mod cli;
 mod console;
-mod screens;
-mod theme;
-mod widgets;
+mod ui;
 
 fn main() -> iced::Result {
     let mut arguments = std::env::args().skip(1);
@@ -95,11 +94,12 @@ fn launch_gui() -> iced::Result {
     // SAFETY: this runs once on the main thread before iced creates any window
     // or executor thread, so no concurrent reader can observe the change.
     unsafe { std::env::set_var("ICED_BACKEND", "tiny-skia") };
-    iced::application(boot, update, screens::view)
+    iced::application(boot, update, ui::view)
         .title(|_: &Studio| String::from("Reims Studio"))
-        .theme(|_: &Studio| Theme::Dark)
+        .theme(|state: &Studio| state.ui_theme.clone())
         .window(window_settings())
         .subscription(subscription)
+        .shadcn_iced()
         .run()
 }
 
@@ -271,6 +271,8 @@ struct Studio {
     log_page: usize,
     paused: bool,
     ram_usage: f32,
+    /// Current shadcn theme, cloned into iced's theme closure.
+    ui_theme: Theme,
 }
 
 /// Messages produced by widgets and subscriptions.
@@ -282,6 +284,8 @@ enum Message {
     Frame,
     /// Change the visible screen.
     Stage(Stage),
+    /// Switch between dark and light appearance.
+    SetTheme(Mode),
     /// Advance in the setup flow.
     SetupNext,
     /// Go back one setup step.
@@ -473,6 +477,7 @@ fn boot_from(
             .then(|| engines[index].engine_id.clone())
     });
     let status = settings_notice.unwrap_or(status);
+    let ui_theme = ui::theme_for(ui::load_theme(&portable_root));
     (
         Studio {
             portable_root,
@@ -511,6 +516,7 @@ fn boot_from(
             log_page: 0,
             paused: false,
             ram_usage: 0.18,
+            ui_theme,
         },
         Task::none(),
     )
@@ -793,6 +799,16 @@ fn update(studio: &mut Studio, message: Message) -> Task<Message> {
         Message::Frame => Task::none(),
         Message::Stage(stage) => {
             studio.stage = stage;
+            Task::none()
+        }
+        Message::SetTheme(mode) => {
+            studio.ui_theme = ui::theme_for(mode);
+            match ui::save_theme(&studio.portable_root, mode) {
+                Ok(()) => studio.status = Notice::success("Appearance saved."),
+                Err(error) => {
+                    studio.status = Notice::error(format!("Appearance not saved: {error}"))
+                }
+            }
             Task::none()
         }
         Message::SetupNext => {
@@ -1170,8 +1186,8 @@ fn render_command(studio: &Studio) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::screens::nav_state;
-    use crate::theme::Tone;
+    use crate::ui::screens::setup::nav_labels;
+    use crate::ui::theme::Tone;
 
     #[test]
     fn sentinel_is_removed_after_three_seconds() {
@@ -1237,10 +1253,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temp dir");
         let mut studio = boot_with_root(directory.path());
         for step in SetupStep::ALL {
-            let labels: Vec<&str> = nav_state(&studio, step)
-                .into_iter()
-                .map(|(label, _)| label)
-                .collect();
+            let labels: Vec<&str> = nav_labels(step);
             if step == SetupStep::Welcome {
                 assert!(labels.contains(&"Run checks"));
             } else {
@@ -1276,10 +1289,7 @@ mod tests {
                 result: Ok(()),
             },
         );
-        let labels: Vec<&str> = nav_state(&studio, SetupStep::Engine)
-            .into_iter()
-            .map(|(label, _)| label)
-            .collect();
+        let labels: Vec<&str> = nav_labels(SetupStep::Engine);
         assert!(labels.contains(&"Back"));
         assert!(labels.contains(&"Continue"));
         assert!(can_continue(&studio, SetupStep::Engine).0);
