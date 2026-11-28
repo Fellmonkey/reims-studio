@@ -43,6 +43,7 @@ pub fn view<'a>(studio: &'a Studio, theme: &Theme) -> Element<'a, Message, Theme
                 row![
                     t::secondary("Change engine", Message::Stage(Stage::Settings)),
                     t::secondary("Open release page", Message::OpenRelease),
+                    t::secondary("Render QEMU command", Message::BuildCommand),
                 ]
                 .spacing(10),
             ]

@@ -54,7 +54,7 @@ pub fn view<'a>(
         SetupStep::Engine => engine(studio, theme),
         SetupStep::MacOs => macos(studio, theme),
         SetupStep::Vm => vm(studio, theme),
-        SetupStep::Install => install(theme),
+        SetupStep::Install => install(studio, theme),
         SetupStep::Summary => summary(studio, theme),
     };
 
@@ -394,22 +394,31 @@ fn vm<'a>(studio: &'a Studio, _theme: &'a Theme) -> Element<'a, Message, Theme> 
     )
 }
 
-fn install<'a>(theme: &'a Theme) -> Element<'a, Message, Theme> {
+fn install<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, Theme> {
+    let host_state = if studio.post_install_applied {
+        t::badge("Host settings applied automatically", Tone::Success)
+    } else {
+        t::badge("Host settings pending", Tone::Warning)
+    };
     t::card_headed(
         "Guest setup",
         "Install macOS",
         "Checklist",
         column![
+            host_state,
             t::body(theme, "1 · Boot the VM with the macOS installer attached."),
-            t::body(theme, "2 · In Recovery Terminal run:"),
-            text(POST_INSTALL_COMMAND).size(12.0),
-            t::secondary("Copy command", Message::CopyPostInstall),
-            t::body(
+            t::muted(
                 theme,
-                "3 · Eject the installer and apply OpenCore settings."
+                "2 · The command below is for the guest's macOS Recovery Terminal, NOT for this PC."
             ),
-            t::secondary("Apply post-install settings", Message::PostInstall),
-            t::secondary("Render QEMU command", Message::BuildCommand),
+            text(POST_INSTALL_COMMAND).size(12.0),
+            t::secondary("Copy guest command", Message::CopyPostInstall),
+            t::body(theme, "3 · Eject the installer and reboot into macOS."),
+            t::muted(
+                theme,
+                "OpenCore settings on the host are already written to vm.toml."
+            ),
+            t::secondary("Re-apply host settings", Message::PostInstall),
         ]
         .spacing(10)
         .into(),

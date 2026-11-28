@@ -839,6 +839,25 @@ fn update(studio: &mut Studio, message: Message) -> Task<Message> {
                                 "VM {} saved: {} MiB, {} vCPUs",
                                 config.name, config.ram_mib, config.vcpus
                             ));
+                            // Apply the host-side OpenCore settings automatically;
+                            // only the guest-side Recovery command remains manual.
+                            match apply_post_install(studio) {
+                                Ok(()) => {
+                                    studio.post_install_applied = true;
+                                    studio.status = Notice::success(format!(
+                                        "Created vms/{} and applied post-install settings.",
+                                        config.name
+                                    ));
+                                    studio
+                                        .logs
+                                        .push("host post-install settings applied automatically");
+                                }
+                                Err(error) => {
+                                    studio.status = Notice::warning(format!(
+                                        "VM created, but post-install settings failed: {error}"
+                                    ));
+                                }
+                            }
                             SetupStep::Install
                         }
                         Err(error) => {
@@ -1355,6 +1374,10 @@ mod tests {
             studio.bridge_token
         );
         assert_eq!(studio.stage, Stage::Setup(SetupStep::Install));
+        assert!(studio.post_install_applied);
+        let config: VmConfig =
+            reims_core::contracts::load_toml(&vm_dir.join("vm.toml")).expect("vm config");
+        assert_eq!(config.scan_policy, 983_299);
     }
 
     #[test]
