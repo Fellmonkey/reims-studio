@@ -309,6 +309,8 @@ enum Message {
     RefreshCatalog,
     /// Pick an engine from the catalog.
     SelectEngine(usize),
+    /// Reprovision the existing VM with the selected engine build.
+    ApplyEngine,
     /// Select an engine channel.
     Channel(Channel),
     /// Copy the selected engine's download URL.
@@ -963,6 +965,35 @@ fn update(studio: &mut Studio, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::ApplyEngine => {
+            let Some(engine) = selected(studio).cloned() else {
+                studio.status = Notice::error("Select an engine first.");
+                return Task::none();
+            };
+            let vm_path = studio
+                .portable_root
+                .join("vms")
+                .join(&studio.vm_name)
+                .join("vm.toml");
+            let config: VmConfig = match load_toml(&vm_path) {
+                Ok(config) => config,
+                Err(error) => {
+                    studio.status = Notice::error(format!("No VM to update: {error}"));
+                    return Task::none();
+                }
+            };
+            studio.installed_engine_id = Some(engine.engine_id.clone());
+            match provision_vm(studio, &config) {
+                Ok(()) => {
+                    studio.status = Notice::success(format!("VM now uses {}", engine.engine_id));
+                    studio
+                        .logs
+                        .push(format!("VM reprovisioned with {}", engine.engine_id));
+                }
+                Err(error) => studio.status = Notice::error(error),
+            }
+            Task::none()
+        }
         Message::Channel(channel) => {
             studio.channel = channel;
             studio.selected_engine = studio
@@ -1174,7 +1205,9 @@ fn create_vm(studio: &Studio) -> Result<VmConfig, String> {
     Ok(config)
 }
 
-/// Copies firmware/OpenCore into the VM and creates the thin system disk.
+/// Uses the bundled reims-util to create OpenCore/OVMF for the VM, then the
+/// bundled qemu-img to make its thin system disk. Mirrors upstream
+/// install-ctl.sh: CI only compiles tools, the launcher does setup work.
 fn provision_vm(studio: &Studio, config: &VmConfig) -> Result<(), String> {
     let engine_id = studio
         .installed_engine_id
@@ -1183,13 +1216,53 @@ fn provision_vm(studio: &Studio, config: &VmConfig) -> Result<(), String> {
         .ok_or_else(|| String::from("no installed engine selected"))?;
     let bundle = reims_engine_mgr::engine_dir(&studio.portable_root, engine_id);
     let vm_dir = studio.portable_root.join("vms").join(&config.name);
-    for name in ["OpenCore.qcow2", "OVMF_VARS.fd"] {
-        let source = bundle.join("firmware").join(name);
-        if !source.is_file() {
-            return Err(format!("engine bundle is missing firmware/{name}"));
+    let util = bundle.join("bin").join(if cfg!(windows) {
+        "reims-util.exe"
+    } else {
+        "reims-util"
+    });
+    if util.is_file() {
+        let mut command = Command::new(&util);
+        command
+            .current_dir(&vm_dir)
+            .args(["opencore", "-o", "OpenCore.qcow2"]);
+        let guest = bundle.join("firmware").join("guest");
+        let mut kexts = std::fs::read_dir(&guest)
+            .map_err(|error| format!("cannot list guest kexts: {error}"))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir() && path.extension().is_some_and(|ext| ext == "kext"))
+            .collect::<Vec<_>>();
+        kexts.sort();
+        for kext in kexts {
+            command.arg("--add-kext").arg(kext);
         }
-        std::fs::copy(&source, vm_dir.join(name)).map_err(|error| error.to_string())?;
+        let output = command
+            .output()
+            .map_err(|error| format!("cannot run reims-util: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "reims-util opencore failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        // The adapter resolves OVMF_CODE.fd inside the engine bundle.
+        std::fs::copy(
+            vm_dir.join("OVMF_CODE.fd"),
+            bundle.join("firmware").join("OVMF_CODE.fd"),
+        )
+        .map_err(|error| error.to_string())?;
+    } else {
+        // Older bundles/tests may ship the generated files directly.
+        for name in ["OpenCore.qcow2", "OVMF_VARS.fd"] {
+            let source = bundle.join("firmware").join(name);
+            if !source.is_file() {
+                return Err(format!("engine bundle is missing firmware/{name}"));
+            }
+            std::fs::copy(&source, vm_dir.join(name)).map_err(|error| error.to_string())?;
+        }
     }
+    std::fs::write(vm_dir.join("engine.id"), engine_id).map_err(|error| error.to_string())?;
     let disk = vm_dir.join("disk.qcow2");
     let img = bundle.join("bin").join(if cfg!(windows) {
         "qemu-img.exe"

@@ -20,23 +20,18 @@ cp "target/dist-vulkan/bin/$helper_name" "$root/bundle/bin/"
 cp firmware/prebuilt/*.rom "$root/bundle/firmware/"
 cp -r guest/prebuilt/. "$root/bundle/firmware/guest/"
 
-# Generate the OpenCore image and OVMF pair a fresh VM needs. reims-util
-# downloads pinned upstream assets and adds the guest kexts in load order.
+# CI only compiles tools. The launcher performs install-time work with them,
+# just like upstream install-ctl.sh does on a user's machine.
 util_ref="7867384c0ab703b4c6aae36cbbb1a35fcffc8321"
+util_name="reims-util"
+[[ "${RUNNER_OS:-}" == "Windows" ]] && util_name="reims-util.exe"
 if command -v git >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   git clone --depth 1 https://github.com/steelbrain/reims-util.git upstream/reims-util
   git -C upstream/reims-util checkout "$util_ref"
   (cd upstream/reims-util && cargo build --release --locked)
-  util="upstream/reims-util/target/release/reims-util"
-  [[ "${RUNNER_OS:-}" == "Windows" ]] && util="$util.exe"
-  kext_args=()
-  for kext in "$root"/firmware/guest/*.kext; do
-    [ -d "$kext" ] && kext_args+=(--add-kext "$kext")
-  done
-  (cd "$root/firmware" && "$util" opencore -o OpenCore.qcow2 "${kext_args[@]}")
-  test -s "$root/firmware/OpenCore.qcow2"
-  test -s "$root/firmware/OVMF_CODE.fd"
-  test -s "$root/firmware/OVMF_VARS.fd"
+  cp "upstream/reims-util/target/release/$util_name" "$root/bundle/bin/"
+  mkdir -p "$root/bundle/licenses"
+  cp upstream/reims-util/LICENSE "$root/bundle/licenses/reims-util.LICENSE"
 fi
 
 for binary in "$qemu_name" "$img_name" "$helper_name"; do
@@ -85,8 +80,8 @@ if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
       cp /clang64/bin/lib*.dll "$root/bundle/bin/"
     fi
   }
-  for binary in "$qemu_name" "$img_name" "$helper_name"; do
-    copy_runtime_dlls "$root/bundle/bin/$binary"
+  for binary in "$qemu_name" "$img_name" "$helper_name" "$util_name"; do
+    [ -f "$root/bundle/bin/$binary" ] && copy_runtime_dlls "$root/bundle/bin/$binary"
   done
   # ldd on MSYS2 misses some transitive GTK dependencies (libxkbcommon, ...).
   # Copying every lib*.dll is cheap and makes the bundle genuinely self-contained.

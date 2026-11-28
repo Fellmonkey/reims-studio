@@ -69,6 +69,7 @@ pub fn view<'a>(studio: &'a Studio, theme: &Theme) -> Element<'a, Message, Theme
                 iced::widget::row![
                     t::secondary("Refresh from GitHub", Message::RefreshCatalog),
                     t::secondary("Open release page", Message::OpenRelease),
+                    t::secondary("Use for VM", Message::ApplyEngine),
                 ]
                 .spacing(10),
             ]
