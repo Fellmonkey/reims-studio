@@ -4,7 +4,8 @@ use crate::ui::theme::{self as t, Tone};
 use crate::ui::widgets::field;
 use crate::{Message, POST_INSTALL_COMMAND, SetupStep, Studio, can_continue};
 use crate::{catalog, selected, warning_signature};
-use iced::widget::{checkbox, column, row, text};
+use iced::alignment::{Horizontal, Vertical};
+use iced::widget::{checkbox, column, container, row, text};
 use iced::{Element, Length, Theme};
 use reims_platform::preflight::Level;
 
@@ -57,6 +58,8 @@ pub fn view<'a>(
         SetupStep::Summary => summary(studio, theme),
     };
 
+    let body = container(body).width(Length::Fill).height(Length::Fill);
+
     let (allowed, reason) = can_continue(studio, step);
     let mut controls: Vec<Element<'_, Message, Theme>> = Vec::new();
     if step.previous().is_some() {
@@ -87,17 +90,23 @@ pub fn view<'a>(
         }
     }
 
-    column![
-        header,
-        t::divider(),
+    let footer = row![
         row(controls).spacing(10),
-        body,
-        t::divider(),
-        t::feedback_line(theme, &studio.status, studio.last_action.as_ref()),
+        container(t::feedback_line(
+            theme,
+            &studio.status,
+            studio.last_action.as_ref()
+        ))
+        .width(Length::Fill)
+        .align_x(Horizontal::Right),
     ]
-    .spacing(12)
-    .height(Length::Fill)
-    .into()
+    .spacing(16)
+    .align_y(Vertical::Bottom);
+
+    column![header, t::divider(), body, t::divider(), footer,]
+        .spacing(12)
+        .height(Length::Fill)
+        .into()
 }
 
 fn welcome<'a>(theme: &'a Theme) -> Element<'a, Message, Theme> {

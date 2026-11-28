@@ -194,10 +194,7 @@ pub fn feedback_line<'a, Message: Clone + 'a>(
             tone,
         ));
     }
-    iced::widget::row(items)
-        .spacing(8)
-        .width(Length::Fill)
-        .into()
+    iced::widget::row(items).spacing(8).into()
 }
 
 /// Returns a 1px separator.

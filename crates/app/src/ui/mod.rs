@@ -4,6 +4,7 @@ pub mod screens;
 pub mod theme;
 pub mod widgets;
 
+use iced::alignment::Horizontal;
 use iced::widget::{column, container, row, text};
 use iced::{Element, Length, Theme};
 use shadcn_iced::button as si_button;
@@ -50,6 +51,7 @@ pub fn view(studio: &Studio) -> Element<'_, Message, Theme> {
         Stage::Settings => frame(studio, theme, screens::settings::view(studio, theme)),
     };
     container(content)
+        .padding(16.0)
         .width(Length::Fill)
         .height(Length::Fill)
         .style(theme::page_style)
@@ -98,7 +100,13 @@ fn frame<'a>(
         theme::divider(),
         row![rail, content].spacing(16).height(Length::Fill),
         theme::divider(),
-        theme::feedback_line(theme, &studio.status, studio.last_action.as_ref()),
+        container(theme::feedback_line(
+            theme,
+            &studio.status,
+            studio.last_action.as_ref()
+        ))
+        .width(Length::Fill)
+        .align_x(Horizontal::Right),
     ]
     .spacing(12)
     .height(Length::Fill)
