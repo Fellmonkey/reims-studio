@@ -369,7 +369,7 @@ jobs:
             --assets assets \
             --base-url "https://github.com/${{ github.repository }}/releases/download/engines-$CHANNEL" \
             --changelog CHANGELOG.md \
-            --built-at "$GITHUB_RUN_STARTED_AT" \
+            --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --source-revision "$VGPU_REF" \
             --qemu-revision "$QEMU_REF" \
             --output index.json
