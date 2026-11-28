@@ -4,7 +4,7 @@
 //! on the `tiny-skia` software renderer, so effects are limited to flat fills,
 //! borders and spacing that render identically on every host.
 
-use iced::widget::{button, column, container, progress_bar, text};
+use iced::widget::{button, column, container, progress_bar, row, rule, scrollable, text};
 use iced::{Background, Border, Color, Element, Font, Length, Theme, font};
 
 /// Page background.
@@ -33,6 +33,20 @@ pub const WARNING: Color = Color::from_rgb(0.824, 0.600, 0.133);
 pub const DANGER: Color = Color::from_rgb(0.973, 0.319, 0.286);
 /// Disabled text.
 pub const DISABLED: Color = Color::from_rgb(0.431, 0.463, 0.506);
+/// Sunken surface for tracks and inputs.
+pub const SUNKEN: Color = Color::from_rgb(0.043, 0.059, 0.078);
+/// Raised surface for segmented controls.
+pub const RAISED: Color = Color::from_rgb(0.133, 0.153, 0.180);
+/// Hairline border for subtle separators.
+pub const BORDER_SUBTLE: Color = Color::from_rgb(0.129, 0.153, 0.176);
+/// Strong border for scroll rails and active controls.
+pub const BORDER_STRONG: Color = Color::from_rgb(0.239, 0.267, 0.302);
+/// Tertiary text for eyebrows and metadata.
+pub const SUBTLE: Color = Color::from_rgb(0.545, 0.580, 0.620);
+/// Low-opacity accent fill for active items.
+pub const ACCENT_SUBTLE: Color = Color { a: 0.12, ..ACCENT };
+/// Fully transparent color for inactive controls.
+pub const CLEAR: Color = Color { a: 0.0, ..CARD };
 
 /// Spacing unit used everywhere in the app.
 pub const GAP: f32 = 12.0;
@@ -129,6 +143,131 @@ pub fn card<'a, Message: 'a>(
     .into()
 }
 
+/// Returns a 1px hairline separator.
+pub fn divider<'a, Message: 'a>() -> Element<'a, Message, Theme> {
+    rule::horizontal(1)
+        .style(|_theme| rule::Style {
+            color: BORDER_SUBTLE,
+            radius: 0.0.into(),
+            fill_mode: rule::FillMode::Full,
+            snap: true,
+        })
+        .into()
+}
+
+/// Returns a small uppercase eyebrow label.
+pub fn eyebrow<'a, Message: 'a>(value: &'static str) -> Element<'a, Message, Theme> {
+    text(value.to_uppercase())
+        .size(11.0)
+        .color(SUBTLE)
+        .font(Font {
+            weight: font::Weight::Bold,
+            ..Font::default()
+        })
+        .into()
+}
+
+/// Returns a card with an eyebrow, title, metadata and a hairline header.
+pub fn card_headed<'a, Message: 'a>(
+    eyebrow_text: &'static str,
+    title: &'static str,
+    meta: &'static str,
+    body: Element<'a, Message, Theme>,
+) -> Element<'a, Message, Theme> {
+    let header = column![
+        eyebrow(eyebrow_text),
+        row![section_title(title), text(meta).size(11.0).color(SUBTLE),].spacing(12),
+        divider(),
+    ]
+    .spacing(6);
+    container(column![header, body].spacing(GAP).width(Length::Fill))
+        .padding(PAD)
+        .width(Length::Fill)
+        .style(|_theme| container::Style {
+            background: Some(Background::Color(CARD)),
+            text_color: Some(TEXT),
+            border: Border {
+                color: BORDER,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// Returns a fixed-height viewport with an embedded, themed scrollbar.
+pub fn scroll_box<'a, Message: 'a>(
+    content: impl Into<Element<'a, Message, Theme>>,
+    height: f32,
+) -> Element<'a, Message, Theme> {
+    let rail = scrollable::Rail {
+        background: Some(Background::Color(SUNKEN)),
+        border: Border {
+            color: BORDER_SUBTLE,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        scroller: scrollable::Scroller {
+            background: Background::Color(BORDER_STRONG),
+            border: Border {
+                radius: 4.0.into(),
+                ..Border::default()
+            },
+        },
+    };
+    scrollable(content.into())
+        .width(Length::Fill)
+        .height(Length::Fixed(height))
+        .spacing(6.0)
+        .style(move |theme, status| {
+            let mut style = scrollable::default(theme, status);
+            style.vertical_rail = rail;
+            style.horizontal_rail = rail;
+            style.container = container::Style {
+                background: Some(Background::Color(CARD)),
+                ..container::Style::default()
+            };
+            style
+        })
+        .into()
+}
+
+/// Returns a segmented control for a small set of mutually exclusive choices.
+pub fn segmented<'a, Message: Clone + 'a>(
+    labels: &'static [&'static str],
+    selected: usize,
+    choose: impl Fn(usize) -> Message + 'a,
+) -> Element<'a, Message, Theme> {
+    let items = labels
+        .iter()
+        .enumerate()
+        .map(|(index, label)| {
+            let active = index == selected;
+            button(text(*label).size(12.0))
+                .on_press(choose(index))
+                .style(move |_theme, status| button::Style {
+                    background: Some(Background::Color(if active {
+                        RAISED
+                    } else if matches!(status, button::Status::Hovered) {
+                        CARD_ALT
+                    } else {
+                        CARD
+                    })),
+                    text_color: if active { ACCENT } else { TEXT },
+                    border: Border {
+                        color: BORDER,
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    ..button::Style::default()
+                })
+                .into()
+        })
+        .collect::<Vec<Element<'a, Message, Theme>>>();
+    row(items).spacing(4).into()
+}
+
 /// Returns a section heading.
 pub fn section_title<'a, Message: 'a>(title: &'static str) -> Element<'a, Message, Theme> {
     text(title)
@@ -151,17 +290,19 @@ pub fn body<'a, Message: 'a>(value: impl Into<String>) -> Element<'a, Message, T
     text(value.into()).size(14.0).color(TEXT).into()
 }
 
-/// Returns a colored badge with a tinted background.
+/// Returns a status pill with a colored dot and tinted background.
 pub fn badge<'a, Message: 'a>(value: impl Into<String>, tone: Tone) -> Element<'a, Message, Theme> {
     let color = tone.color();
-    container(text(value.into()).size(12.0).color(color))
-        .padding([4.0, 8.0])
+    let dot = container(text("•").size(12.0).color(color))
+        .style(move |_theme| container::Style::default());
+    container(row![dot, text(value.into()).size(12.0).color(color)].spacing(6))
+        .padding([4.0, 10.0])
         .style(move |_theme| container::Style {
-            background: Some(Background::Color(Color { a: 0.16, ..color })),
+            background: Some(Background::Color(Color { a: 0.12, ..color })),
             border: Border {
-                color,
+                color: Color { a: 0.35, ..color },
                 width: 1.0,
-                radius: 4.0.into(),
+                radius: 99.0.into(),
             },
             ..container::Style::default()
         })
@@ -276,13 +417,27 @@ pub fn nav<'a, Message: Clone + 'a>(
     active: bool,
     message: Message,
 ) -> Element<'a, Message, Theme> {
-    button(text(label).size(14.0))
+    button(text(label).size(13.0))
         .on_press(message)
+        .width(Length::Fill)
         .style(move |_theme, status| {
-            button_style(
-                active,
-                matches!(status, button::Status::Hovered | button::Status::Pressed),
-            )
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(if active {
+                    ACCENT_SUBTLE
+                } else if hovered {
+                    CARD_ALT
+                } else {
+                    CLEAR
+                })),
+                text_color: if active { ACCENT } else { TEXT },
+                border: Border {
+                    color: if active { ACCENT } else { CLEAR },
+                    width: if active { 2.0 } else { 0.0 },
+                    radius: 6.0.into(),
+                },
+                ..button::Style::default()
+            }
         })
         .into()
 }
