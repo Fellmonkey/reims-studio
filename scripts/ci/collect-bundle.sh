@@ -46,6 +46,30 @@ fi
 printf 'video_prop=%s\n' "$prop" >> "$outputs"
 
 if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+  # QEMU links against clang64 runtime DLLs (pixman, zlib, glib, GTK, ...).
+  # ldd gives the exact transitive set; fall back to the lib*.dll prefix when
+  # ldd is unavailable so a fresh bundle never misses a loader dependency.
+  copy_runtime_dlls() {
+    local binary="$1"
+    if command -v ldd >/dev/null 2>&1; then
+      ldd "$binary" 2>/dev/null \
+        | tr ' ' '\n' \
+        | grep -E 'clang64[/\\]bin[/\\].*\.dll' \
+        | sed 's#.*[/\\]##' \
+        | sort -u \
+        | while read -r name; do
+            if [ -f "/clang64/bin/$name" ]; then
+              cp -f "/clang64/bin/$name" "$root/bundle/bin/"
+            fi
+          done || true
+    else
+      cp /clang64/bin/lib*.dll "$root/bundle/bin/"
+    fi
+  }
+  for binary in "$qemu_name" "$img_name" "$helper_name"; do
+    copy_runtime_dlls "$root/bundle/bin/$binary"
+  done
+
   # VA-API is mandatory on Windows. Never ship the loader DLL.
   rm -f "$root/bundle/bin/vulkan-1.dll"
   cp /clang64/bin/libva*.dll "$root/bundle/vaapi/" 2>/dev/null || true
