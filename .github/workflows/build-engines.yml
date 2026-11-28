@@ -86,12 +86,15 @@ jobs:
           if [ "${{ inputs.skip_unchanged }}" != "true" ]; then
             force=(--force)
           fi
+          # Store a real SHA, not the branch name, so the next changelog has a base.
+          revision="$(git -C upstream/reims-vgpu rev-parse HEAD)"
           python3 scripts/ci/check_rebuild.py \
             --upstream upstream/reims-vgpu \
             --local . \
             --state state/build-state.json \
             --output state/build-state.json \
             --vgpu-ref "$VGPU_REF" \
+            --revision "$revision" \
             --qemu-ref "$QEMU_REF" \
             --qemu-ref-windows "$QEMU_REF_WINDOWS" \
             --channel "$CHANNEL" "${force[@]}"

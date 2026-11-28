@@ -128,6 +128,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qemu-ref", required=True)
     parser.add_argument("--qemu-ref-windows", required=True)
     parser.add_argument("--channel", required=True)
+    parser.add_argument(
+        "--revision",
+        default="",
+        help="resolved engine source SHA to record as this build's revision",
+    )
     parser.add_argument("--force", action="store_true", help="rebuild even if nothing changed")
     return parser.parse_args()
 
@@ -140,7 +145,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": SCHEMA_VERSION,
-                "revision": args.vgpu_ref,
+                "revision": args.revision or args.vgpu_ref,
                 "sources": current,
             },
             indent=2,
