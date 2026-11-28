@@ -264,6 +264,8 @@ struct Studio {
     bridge_port: String,
     qmp_port: String,
     post_install_applied: bool,
+    vm_launched: bool,
+    vm_launch_error: Option<String>,
     installed_engine_id: Option<String>,
     installing: bool,
     install_counter: Arc<AtomicU64>,
@@ -334,12 +336,8 @@ enum Message {
     Resolution(String),
     /// Render the QEMU command for diagnostics.
     BuildCommand,
-    /// Switch OpenCore to post-install settings.
-    PostInstall,
     /// Start the emulator for the configured VM.
     StartVm,
-    /// Copy the Tahoe command to the clipboard.
-    CopyPostInstall,
     /// Edit the guest bridge port.
     BridgePort(String),
     /// Edit the local QMP port.
@@ -511,6 +509,8 @@ fn boot_from(
             bridge_port: settings.bridge_port.to_string(),
             qmp_port: settings.qmp_port.to_string(),
             post_install_applied: false,
+            vm_launched: false,
+            vm_launch_error: None,
             installed_engine_id,
             installing: false,
             install_counter: Arc::new(AtomicU64::new(0)),
@@ -863,6 +863,26 @@ fn update(studio: &mut Studio, message: Message) -> Task<Message> {
                                     ));
                                 }
                             }
+                            // Everything the host can do is done automatically; start QEMU
+                            // before the wizard reaches the summary.
+                            studio.pending_action = Some((ActionKind::Launch, Instant::now()));
+                            match start_vm(studio) {
+                                Ok(()) => {
+                                    finish_action(studio, ActionKind::Launch, true);
+                                    studio.vm_launched = true;
+                                    studio.vm_launch_error = None;
+                                    studio.status = Notice::success(
+                                        "VM provisioned and QEMU started automatically.",
+                                    );
+                                    studio.logs.push("QEMU started automatically");
+                                }
+                                Err(error) => {
+                                    finish_action(studio, ActionKind::Launch, false);
+                                    studio.vm_launched = false;
+                                    studio.vm_launch_error = Some(error.clone());
+                                    studio.status = Notice::error(error);
+                                }
+                            }
                             SetupStep::Install
                         }
                         Err(error) => {
@@ -1067,22 +1087,6 @@ fn update(studio: &mut Studio, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        Message::PostInstall => {
-            match apply_post_install(studio) {
-                Ok(()) => {
-                    studio.post_install_applied = true;
-                    studio.status = Notice::success("Post-install settings applied.");
-                    studio
-                        .logs
-                        .push("ScanPolicy 983299, Timeout 2, ShowPicker true");
-                }
-                Err(error) => {
-                    studio.status = Notice::error(format!("Post-install failed: {error}"))
-                }
-            }
-            Task::none()
-        }
-        Message::CopyPostInstall => iced::clipboard::write(String::from(POST_INSTALL_COMMAND)),
         Message::BridgePort(value) => {
             studio.bridge_port = value;
             Task::none()
@@ -1166,7 +1170,49 @@ fn create_vm(studio: &Studio) -> Result<VmConfig, String> {
     // the guest LaunchAgent later.
     std::fs::write(vm_dir.join("bridge.token"), studio.bridge_token.as_bytes())
         .map_err(|error| error.to_string())?;
+    provision_vm(studio, &config)?;
     Ok(config)
+}
+
+/// Copies firmware/OpenCore into the VM and creates the thin system disk.
+fn provision_vm(studio: &Studio, config: &VmConfig) -> Result<(), String> {
+    let engine_id = studio
+        .installed_engine_id
+        .as_deref()
+        .or_else(|| selected(studio).map(|engine| engine.engine_id.as_str()))
+        .ok_or_else(|| String::from("no installed engine selected"))?;
+    let bundle = reims_engine_mgr::engine_dir(&studio.portable_root, engine_id);
+    let vm_dir = studio.portable_root.join("vms").join(&config.name);
+    for name in ["OpenCore.qcow2", "OVMF_VARS.fd"] {
+        let source = bundle.join("firmware").join(name);
+        if !source.is_file() {
+            return Err(format!("engine bundle is missing firmware/{name}"));
+        }
+        std::fs::copy(&source, vm_dir.join(name)).map_err(|error| error.to_string())?;
+    }
+    let disk = vm_dir.join("disk.qcow2");
+    let img = bundle.join("bin").join(if cfg!(windows) {
+        "qemu-img.exe"
+    } else {
+        "qemu-img"
+    });
+    if img.is_file() {
+        let output = Command::new(&img)
+            .args(["create", "-f", "qcow2"])
+            .arg(&disk)
+            .arg("128G")
+            .output()
+            .map_err(|error| format!("cannot create system disk: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "cannot create system disk: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+    } else {
+        std::fs::write(&disk, b"").map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn apply_post_install(studio: &Studio) -> Result<(), String> {
@@ -1229,23 +1275,61 @@ fn render_command(studio: &Studio) -> Result<String, String> {
 fn start_vm(studio: &Studio) -> Result<(), String> {
     let (program, args, working_dir) = qemu_execution(studio)?;
     let workdir = studio.portable_root.join(&working_dir);
+    let mut missing = Vec::new();
+    for name in ["OVMF_VARS.fd", "OpenCore.qcow2", "disk.qcow2"] {
+        if !workdir.join(name).is_file() {
+            missing.push(name);
+        }
+    }
+    if !missing.is_empty() {
+        return Err(format!(
+            "VM files missing: {}. Recreate the VM to provision them.",
+            missing.join(", ")
+        ));
+    }
     let executable = if Path::new(&program).is_absolute() {
         PathBuf::from(&program)
     } else {
         workdir.join(&program)
     };
+    if !executable.is_file() {
+        return Err(format!("QEMU binary not found: {}", executable.display()));
+    }
+    let log_path = workdir.join("vm-launch.log");
+    let log = std::fs::File::create(&log_path).map_err(|error| error.to_string())?;
     let mut command = Command::new(&executable);
-    command.args(&args).current_dir(&workdir);
+    command
+        .args(&args)
+        .current_dir(&workdir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::from(log));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         // Launching from a GUI app must not create a console window.
         command.creation_flags(0x0800_0000);
     }
-    command
+    let mut child = command
         .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("cannot start QEMU: {error}"))
+        .map_err(|error| format!("cannot start QEMU: {error}"))?;
+    // A QEMU that exits immediately is a failure, not a successful launch.
+    std::thread::sleep(Duration::from_millis(600));
+    if let Some(status) = child
+        .try_wait()
+        .map_err(|error| format!("cannot check QEMU: {error}"))?
+    {
+        let detail = std::fs::read_to_string(&log_path).unwrap_or_default();
+        let tail = detail.lines().rev().take(6).collect::<Vec<_>>().join(" | ");
+        return Err(format!(
+            "QEMU exited with status {status}: {}",
+            if tail.is_empty() {
+                "no diagnostic output"
+            } else {
+                &tail
+            }
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1411,6 +1495,13 @@ mod tests {
     fn vm_step_writes_vm_and_token() {
         let directory = tempfile::tempdir().expect("temp dir");
         let mut studio = boot_with_root(directory.path());
+        let id = if cfg!(windows) {
+            "win64-master-test"
+        } else {
+            "linux64-master-test"
+        };
+        write_manifest(directory.path(), id);
+        studio.installed_engine_id = Some(String::from(id));
         studio.stage = Stage::Setup(SetupStep::Vm);
         let _ = update(&mut studio, Message::SetupNext);
         let vm_dir = directory.path().join("vms/macos-tahoe");
@@ -1430,8 +1521,6 @@ mod tests {
     fn render_command_uses_the_installed_engine_manifest() {
         let directory = tempfile::tempdir().expect("temp dir");
         let mut studio = boot_with_root(directory.path());
-        studio.stage = Stage::Setup(SetupStep::Vm);
-        let _ = update(&mut studio, Message::SetupNext);
         let id = if cfg!(windows) {
             "win64-master-test"
         } else {
@@ -1439,6 +1528,8 @@ mod tests {
         };
         write_manifest(directory.path(), id);
         studio.installed_engine_id = Some(String::from(id));
+        studio.stage = Stage::Setup(SetupStep::Vm);
+        let _ = update(&mut studio, Message::SetupNext);
         let rendered = render_command(&studio).expect("rendered command");
         assert!(rendered.contains("qemu-system-x86_64"));
         assert!(rendered.contains("macos-tahoe"));
@@ -1491,6 +1582,11 @@ mod tests {
         }
         std::fs::write(&path, content).expect("write manifest");
         let _: EngineManifest = load_json(&path).expect("valid manifest fixture");
+        let firmware = reims_engine_mgr::engine_dir(root, engine_id).join("firmware");
+        std::fs::create_dir_all(&firmware).expect("firmware dir");
+        for name in ["OpenCore.qcow2", "OVMF_VARS.fd", "OVMF_CODE.fd"] {
+            std::fs::write(firmware.join(name), b"fixture").expect("firmware fixture");
+        }
     }
 
     fn boot_with_root(root: &std::path::Path) -> Studio {

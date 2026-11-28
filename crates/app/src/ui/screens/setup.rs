@@ -405,21 +405,25 @@ fn install<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, The
         "Install macOS",
         "Checklist",
         column![
+            t::body(theme, "Everything below was done automatically:"),
+            t::badge("VM created", Tone::Success),
+            t::badge("Firmware and disk provisioned", Tone::Success),
             host_state,
-            t::body(theme, "1 · Boot the VM with the macOS installer attached."),
+            if studio.vm_launched {
+                t::badge("QEMU running", Tone::Success)
+            } else {
+                t::badge("QEMU did not start", Tone::Error)
+            },
+            if let Some(error) = &studio.vm_launch_error {
+                t::muted(theme, format!("Launch error: {error}"))
+            } else {
+                t::muted(theme, "The macOS installer is running in the VM window.")
+            },
             t::muted(
                 theme,
-                "2 · The command below is for the guest's macOS Recovery Terminal, NOT for this PC."
+                "Inside the guest's macOS Recovery Terminal, if needed:"
             ),
             text(POST_INSTALL_COMMAND).size(12.0),
-            t::secondary("Copy guest command", Message::CopyPostInstall),
-            t::body(theme, "3 · Eject the installer and reboot into macOS."),
-            t::muted(
-                theme,
-                "OpenCore settings on the host are already written to vm.toml."
-            ),
-            t::primary("Start VM", Message::StartVm),
-            t::secondary("Re-apply host settings", Message::PostInstall),
         ]
         .spacing(10)
         .into(),
@@ -472,6 +476,19 @@ fn summary<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, The
         row![
             t::muted(theme, "VM"),
             t::body(theme, studio.vm_name.clone())
+        ]
+        .spacing(12)
+        .into(),
+        row![
+            t::muted(theme, "QEMU"),
+            if studio.vm_launched {
+                t::badge("running", Tone::Success)
+            } else {
+                t::badge(
+                    studio.vm_launch_error.as_deref().unwrap_or("not started"),
+                    Tone::Error,
+                )
+            }
         ]
         .spacing(12)
         .into(),
