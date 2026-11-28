@@ -211,6 +211,8 @@ enum ActionKind {
     Vm,
     /// Settings save.
     Settings,
+    /// Emulator launch.
+    Launch,
 }
 
 impl ActionKind {
@@ -222,6 +224,7 @@ impl ActionKind {
             Self::Install => "Engine install",
             Self::Vm => "VM creation",
             Self::Settings => "Settings save",
+            Self::Launch => "VM launch",
         }
     }
 }
@@ -333,6 +336,8 @@ enum Message {
     BuildCommand,
     /// Switch OpenCore to post-install settings.
     PostInstall,
+    /// Start the emulator for the configured VM.
+    StartVm,
     /// Copy the Tahoe command to the clipboard.
     CopyPostInstall,
     /// Edit the guest bridge port.
@@ -1047,6 +1052,21 @@ fn update(studio: &mut Studio, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::StartVm => {
+            studio.pending_action = Some((ActionKind::Launch, Instant::now()));
+            match start_vm(studio) {
+                Ok(()) => {
+                    finish_action(studio, ActionKind::Launch, true);
+                    studio.status = Notice::success("QEMU started for the current VM.");
+                    studio.logs.push("VM launch requested");
+                }
+                Err(error) => {
+                    finish_action(studio, ActionKind::Launch, false);
+                    studio.status = Notice::error(error);
+                }
+            }
+            Task::none()
+        }
         Message::PostInstall => {
             match apply_post_install(studio) {
                 Ok(()) => {
@@ -1166,18 +1186,21 @@ fn apply_post_install(studio: &Studio) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-fn render_command(studio: &Studio) -> Result<String, String> {
+/// Builds the QEMU program, arguments and working directory for the current VM.
+fn qemu_execution(studio: &Studio) -> Result<(String, Vec<String>, String), String> {
     let vm_path = studio
         .portable_root
         .join("vms")
         .join(&studio.vm_name)
         .join("vm.toml");
     let config: VmConfig = load_toml(&vm_path).map_err(|error| error.to_string())?;
-    let manifest_path = studio
-        .portable_root
-        .join("engines")
-        .join(format!("test-{}", studio.channel))
-        .join("manifest.json");
+    let engine_id = studio
+        .installed_engine_id
+        .as_deref()
+        .or_else(|| selected(studio).map(|engine| engine.engine_id.as_str()))
+        .ok_or_else(|| String::from("no installed engine selected"))?;
+    let manifest_path =
+        reims_engine_mgr::engine_dir(&studio.portable_root, engine_id).join("manifest.json");
     let manifest: reims_core::contracts::EngineManifest =
         load_json(&manifest_path).map_err(|error| error.to_string())?;
     let adapter = reims_platform::adapter::EngineAdapter::for_manifest(&manifest)
@@ -1188,18 +1211,41 @@ fn render_command(studio: &Studio) -> Result<String, String> {
         manifest,
         vm: config,
         installer_image: None,
-        qmp_port: 4444,
-        bridge_port: 8080,
+        qmp_port: studio.qmp_port.parse().unwrap_or(4444),
+        bridge_port: studio.bridge_port.parse().unwrap_or(8080),
         shader_cache_dir: String::from("../../cache/shaders/default"),
         disable_video_decode: false,
     };
     let command = adapter.build(&spec).map_err(|error| error.to_string())?;
-    Ok(format!(
-        "cd {} && {} {}",
-        command.working_dir,
-        command.program,
-        command.args.join(" ")
-    ))
+    Ok((command.program, command.args, command.working_dir))
+}
+
+fn render_command(studio: &Studio) -> Result<String, String> {
+    let (program, args, working_dir) = qemu_execution(studio)?;
+    Ok(format!("cd {working_dir} && {program} {}", args.join(" ")))
+}
+
+/// Starts the emulator for the configured VM.
+fn start_vm(studio: &Studio) -> Result<(), String> {
+    let (program, args, working_dir) = qemu_execution(studio)?;
+    let workdir = studio.portable_root.join(&working_dir);
+    let executable = if Path::new(&program).is_absolute() {
+        PathBuf::from(&program)
+    } else {
+        workdir.join(&program)
+    };
+    let mut command = Command::new(&executable);
+    command.args(&args).current_dir(&workdir);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Launching from a GUI app must not create a console window.
+        command.creation_flags(0x0800_0000);
+    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("cannot start QEMU: {error}"))
 }
 
 #[cfg(test)]
@@ -1378,6 +1424,24 @@ mod tests {
         let config: VmConfig =
             reims_core::contracts::load_toml(&vm_dir.join("vm.toml")).expect("vm config");
         assert_eq!(config.scan_policy, 983_299);
+    }
+
+    #[test]
+    fn render_command_uses_the_installed_engine_manifest() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let mut studio = boot_with_root(directory.path());
+        studio.stage = Stage::Setup(SetupStep::Vm);
+        let _ = update(&mut studio, Message::SetupNext);
+        let id = if cfg!(windows) {
+            "win64-master-test"
+        } else {
+            "linux64-master-test"
+        };
+        write_manifest(directory.path(), id);
+        studio.installed_engine_id = Some(String::from(id));
+        let rendered = render_command(&studio).expect("rendered command");
+        assert!(rendered.contains("qemu-system-x86_64"));
+        assert!(rendered.contains("macos-tahoe"));
     }
 
     #[test]

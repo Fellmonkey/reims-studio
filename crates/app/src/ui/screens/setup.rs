@@ -418,6 +418,7 @@ fn install<'a>(studio: &'a Studio, theme: &'a Theme) -> Element<'a, Message, The
                 theme,
                 "OpenCore settings on the host are already written to vm.toml."
             ),
+            t::primary("Start VM", Message::StartVm),
             t::secondary("Re-apply host settings", Message::PostInstall),
         ]
         .spacing(10)
